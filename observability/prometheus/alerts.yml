@@ -1,0 +1,35 @@
+# Alert rules, unit-tested in alerts.test.yml (promtool test rules).
+groups:
+  - name: rad-shift
+    rules:
+      # More than 5% of requests failing with a 5xx for 5 minutes.
+      #
+      # The traffic floor (0.05 req/s, about 15 requests in 5 minutes) stops
+      # one failed request out of three at 3 a.m. from paging anyone. Docker's
+      # healthcheck alone sends 0.1 req/s, so a database outage still fires.
+      - alert: HighServerErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{job="backend", status=~"5.."}[5m]))
+              /
+            sum(rate(http_requests_total{job="backend"}[5m]))
+          ) > 0.05
+          and
+          sum(rate(http_requests_total{job="backend"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $value | humanizePercentage }} of API requests are failing with a 5xx"
+          description: "Check the Errors panel and the backend logs on the rad-shift dashboard."
+
+      # The rule above can't fire when the API is down: no requests means no
+      # error rate, just missing data. A failed scrape catches that case.
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Prometheus can't scrape the API at {{ $labels.instance }}"
+          description: "The backend container is stopped, restarting or not answering /metrics."

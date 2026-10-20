@@ -1,0 +1,78 @@
+# Opt-in overlay: Caddy in front of the stack, HTTPS only (roadmap item 14).
+#
+#   docker compose -f compose.yaml -f compose.tls.yaml up --build -d
+#   open https://app.localhost        (API: https://api.localhost)
+#
+# Caddy becomes the only way in, as the load balancer is at go-live: the
+# backend and frontend stop publishing ports, TLS ends at the proxy, and the
+# host name picks the service. Trusting the local CA: see DOCKER.md.
+#
+# Switching between this and the plain stack rebuilds the frontend, because
+# the browser's API URL is baked in at build time.
+
+services:
+  caddy:
+    image: caddy:2.11.7
+    ports:
+      # Loopback only, IPv4 and IPv6: *.localhost resolves to ::1 first.
+      # 80 only redirects to 443.
+      - "127.0.0.1:80:80"
+      - "[::1]:80:80"
+      - "127.0.0.1:443:443"
+      - "[::1]:443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # The local CA's private key and the issued certificates. Kept in a
+      # volume so the root you trusted stays the same across restarts.
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      default:
+        # Fixed, so the backend can trust forwarded headers from this
+        # address and no other.
+        ipv4_address: 10.250.0.10
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    # The admin API answers on localhost inside the container only.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      start_period: 10s
+      start_interval: 1s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  backend:
+    ports: !reset []
+    environment:
+      ALLOWED_ORIGINS: https://app.localhost
+      APP_URL: https://app.localhost
+      # uvicorn trusts X-Forwarded-For/-Proto only from these addresses
+      # (default 127.0.0.1). Without it, every request seems to come from the
+      # proxy, so the client IP the app records (blog view hashes) is Caddy's.
+      FORWARDED_ALLOW_IPS: 10.250.0.10
+
+  frontend:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: https://api.localhost
+    ports: !reset []
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.250.0.0/24
+          # Docker hands out addresses in order, so with enough containers
+          # (the observability overlay adds six) another one took Caddy's
+          # 10.250.0.10 first and Caddy failed with "Address already in use".
+          # Dynamic addresses come from the upper half only; the lower half
+          # is for fixed ones.
+          ip_range: 10.250.0.128/25
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,40 @@
+# Reverse proxy for the local stack (roadmap item 14), used by compose.tls.yaml.
+# It plays the part the ALB plays at go-live (infra/alb.tf): the only way in,
+# TLS terminated here, and host-based routing to the two services.
+#
+# *.localhost always resolves to this machine (browsers, curl, systemd-resolved), so
+# no DNS and no domain are needed. Certificates come from Caddy's own local
+# CA: free, automatic, and trusted only by machines you add its root to
+# (see DOCKER.md).
+{
+	# Every site gets a certificate from the local CA, never a public one.
+	local_certs
+}
+
+(security_headers) {
+	header {
+		# Browsers remember to use HTTPS for a year. No includeSubDomains or
+		# preload: those are for a real domain you own (go-live, item 14).
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# Don't advertise the proxy's name.
+		-Server
+	}
+}
+
+api.localhost {
+	import security_headers
+	# Prometheus scrapes /metrics on the compose network (item 15); from
+	# outside it doesn't exist. The ALB has the same rule (infra/alb.tf).
+	@metrics path /metrics /metrics/*
+	respond @metrics 404
+	# Adds X-Forwarded-For/-Proto/-Host; uvicorn trusts them only from this
+	# proxy's address (FORWARDED_ALLOW_IPS in compose.tls.yaml).
+	reverse_proxy backend:5000
+}
+
+app.localhost {
+	import security_headers
+	reverse_proxy frontend:3000
+}

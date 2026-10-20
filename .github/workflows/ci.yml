@@ -1,0 +1,252 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch: # "Run workflow" button in the Actions tab
+
+# A newer push to the same branch cancels the run still in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege: CI only reads the repo.
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # uv pinned like every other tool here (the action defaults to latest).
+      # activate-environment puts .venv/bin on PATH, which is where the
+      # pre-commit hooks (ruff, bandit, mypy) find their tools.
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          python-version: "3.12"
+          enable-cache: true
+          activate-environment: true
+
+      # mypy needs the app's own dependencies to understand its imports.
+      # --locked: install exactly uv.lock, and fail if pyproject.toml changed
+      # without re-running `uv lock`.
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # Hook environments (ruff, pre-commit-hooks) are cached between runs.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+
+      # Exactly the hooks `git commit` runs locally: file hygiene, ruff lint,
+      # ruff format, mypy. A hook that would rewrite a file fails the job and
+      # --show-diff-on-failure prints the change it wanted.
+      - name: pre-commit (ruff, ruff format, bandit, mypy, file checks)
+        run: pre-commit run --all-files --show-diff-on-failure
+        env:
+          RUFF_OUTPUT_FORMAT: github # findings appear inline on the commit/PR
+          # trufflehog: the `secrets` job scans commits rather than files.
+          # infra-lint: the `terraform` job runs infra/lint.sh with tflint installed.
+          SKIP: trufflehog,infra-lint
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          python-version: "3.12"
+          enable-cache: true
+          activate-environment: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      # The suite runs on in-memory SQLite with S3 and email mocked (tests/conftest.py),
+      # so no database service or secrets are needed here.
+      # -n auto: one worker per CPU (2 on GitHub's private-repo runners). Each
+      # worker is its own process with its own in-memory database.
+      - name: Pytest (parallel)
+        run: pytest -q -n auto -m "not perf" --cov --cov-report=
+
+      # Timing assertions run alone, so parallel workers can't skew them.
+      # --cov-append adds to the parallel run's data; the 95% floor
+      # (fail_under in pyproject.toml) is checked on the combined total.
+      - name: Pytest (performance, serial)
+        run: pytest -q -m perf --cov --cov-append --cov-report=term
+
+      - name: Coverage summary
+        if: always()
+        run: coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY" || true
+
+  # Infrastructure as code (infra/, items 10 and 16). Offline: the tests use
+  # a mock AWS provider, so this job needs no AWS credentials and creates nothing.
+  terraform:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: "1.16.6" # pinned, like every other tool here
+          terraform_wrapper: false
+
+      - name: Format
+        run: terraform fmt -check -recursive
+
+      - name: Init (no backend; just the pinned provider from .terraform.lock.hcl)
+        run: terraform init -backend=false -input=false
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Test (mock AWS provider)
+        run: terraform test
+
+      # The other root modules: the GitHub OIDC roles (items 13, 17), the
+      # state bucket and the imported account setup (item 16), and the image
+      # registry (item 17). Same checks.
+      - name: Other stacks - init, validate, test
+        run: |
+          for stack in github-oidc state-backend account registry; do
+            echo "== $stack"
+            (cd "$stack" && terraform init -backend=false -input=false > /dev/null && terraform validate && terraform test)
+          done
+
+      # Item 16: tflint (both modes) and Checkov, the same script as locally.
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        with:
+          tflint_version: v0.64.0 # pinned; the action's default is "latest"
+
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: infra/tools/uv.lock
+
+      - name: Lint and scan (tflint + Checkov)
+        env:
+          # tflint --init downloads the AWS ruleset from GitHub; a token
+          # avoids the anonymous API rate limit.
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./lint.sh
+
+  # Observability configs (item 15): each tool's own checker plus the alert
+  # rules' unit tests, in the images compose.observability.yaml pins. Pulling
+  # six images costs about a minute, so it only runs when those files change.
+  observability:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0 # to diff against the previous head
+
+      - name: Did the observability configs change?
+        id: changed
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          # New branch, force push or manual run: no usable previous head, so check.
+          if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BEFORE" HEAD -- observability compose.observability.yaml; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate configs and test alert rules
+        if: steps.changed.outputs.run == 'true'
+        run: observability/check.sh
+
+  aws-identity:
+    # Proves the keyless path end to end: GitHub's OIDC token is exchanged for
+    # an hour of credentials on radshift-github-deploy. Only main can assume
+    # the role (its trust policy pins the branch), so other branches skip.
+    # Skips until the AWS_DEPLOY_ROLE_ARN repository variable is set.
+    if: github.ref == 'refs/heads/main' && vars.AWS_DEPLOY_ROLE_ARN != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write # lets the job request an OIDC token; nothing else gets it
+    steps:
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-2
+          role-session-name: ci-${{ github.run_id }}
+
+      - name: Who am I
+        run: |
+          arn=$(aws sts get-caller-identity --query Arn --output text)
+          echo "$arn"
+          case "$arn" in
+            *":assumed-role/radshift-github-deploy/"*) ;;
+            *) echo "::error::expected the radshift-github-deploy role, got $arn"; exit 1 ;;
+          esac
+
+      # The role has no permissions until go-live, so any real call must fail.
+      # If this ever succeeds, someone attached a policy by hand.
+      - name: Role can do nothing else
+        run: |
+          if aws s3api list-buckets > /dev/null 2>&1; then
+            echo "::error::the deploy role can list buckets; it should have no permissions yet"
+            exit 1
+          fi
+
+  secrets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0 # needs the history between the previous and the new head
+
+      # Scans only the commits in this push (github.event.before..after).
+      # Fails on any detection, verified or not: a key that can't be verified
+      # (e.g. freshly generated) is still a leak.
+      - name: Trufflehog (commits in this push)
+        uses: trufflesecurity/trufflehog@e76dff8a7e57d6df0c60ad8cbf5d5cba505a8fc9 # v3.99.2
+        with:
+          # The action's scanner image defaults to "latest"; pin it too. Dependabot
+          # bumps the `uses:` tag above but not this input: update both together.
+          version: 3.99.2
+          extra_args: --results=verified,unknown,unverified --exclude-paths=.trufflehog-exclude.txt
+
+  build:
+    # Only spend time building the image once lint, tests and the secret scan pass.
+    needs: [lint, test, secrets]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      # Build only, no push: every branch checks the Dockerfile still builds.
+      # Images for main are built and pushed by publish.yml (item 17).
+      # The GitHub Actions cache keeps unchanged layers (pip install, Playwright
+      # browsers) between runs.
+      - name: Build backend image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          push: false
+          tags: radshift-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

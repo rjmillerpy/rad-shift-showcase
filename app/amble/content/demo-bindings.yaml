@@ -1,0 +1,33 @@
+# Amble entity → content bindings for the demo town (the public edition;
+# app/baseline.py). Every content-backed entity_id on the demo map gets one
+# entry. The production town and its bindings are private.
+#
+# Binding kinds:
+#   persistent-identity  — entity always surfaces posts from `usernames`.
+#   category             — entity surfaces posts matching hashtag `tags`.
+#   blended              — mix of the two, weighted.
+
+entities:
+  wanderer:
+    binding:
+      kind: category
+      tags: [travel, photography]
+  welcome-sign:
+    binding:
+      kind: category
+      tags: [news, events]
+    empty_state_text: "Nothing posted around town yet."
+  noticeboard:
+    binding:
+      kind: blended
+      parts:
+        - kind: category
+          tags: [events]
+          weight: 0.7
+        - kind: category
+          tags: [music]
+          weight: 0.3
+  cafe-owner:
+    binding:
+      kind: category
+      tags: [food, coffee]

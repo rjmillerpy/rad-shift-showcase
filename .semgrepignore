@@ -1,0 +1,7 @@
+# Semgrep (item 21) scans the code that ships or runs our infrastructure.
+# Tests exercise insecure inputs on purpose; vendored and generated trees aren't ours.
+tests/
+e2e/
+.venv/
+node_modules/
+**/.terraform/

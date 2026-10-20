@@ -1,0 +1,23 @@
+# Infrastructure scanning tools, locked apart from the app (roadmap item 16):
+# Checkov pins an old boto3 that can't coexist with the app's. Run from the
+# repo root, e.g. `uv run --project infra/tools checkov --version`.
+[project]
+name = "rad-shift-infra-tools"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+    "checkov==3.3.22",
+]
+
+# Cooldown deferred: exclude-newer is recorded in uv.lock, so adding it re-locks and
+# rolls back every pin younger than the window (including anthropic, adopted
+# 2026-10-15, and possibly security releases). Dependabot's 14-day cooldown
+# gates new versions meanwhile. Add `exclude-newer = "14 days"` here once every
+# pin is older than that (from about 2026-11-03), when re-locking changes nothing.
+[tool.uv]  # nosemgrep: package_managers.uv.uv-missing-dependency-cooldown.uv-missing-dependency-cooldown
+# Checkov (every release so far) pins asteval==1.0.6, which has a sandbox
+# escape fixed in 1.0.9 (PYSEC-2026-3807 / GHSA-9w56-46f6-3qhx). A patch
+# release within 1.0.x; infra/lint.sh is the proof Checkov still works.
+# Drop this once Checkov raises its own pin.
+override-dependencies = ["asteval>=1.0.9"]
+package = false

@@ -1,0 +1,10 @@
+# Grype (item 21): image vulnerability gate, used by publish.yml and
+# scripts/security-scan.sh with --fail-on critical --only-fixed.
+ignore:
+  # Firefox 155, bundled by Playwright 1.63 for generator scraping. The fixes
+  # ship in Playwright 1.64 (released 2026-10-13), which passes the two-week
+  # supply-chain cooldown on 2026-10-27; Dependabot proposes it then. Only
+  # admin-configured sources are scraped. Remove this entry with that upgrade.
+  - package:
+      name: firefox
+      type: binary

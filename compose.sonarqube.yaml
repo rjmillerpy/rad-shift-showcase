@@ -1,0 +1,63 @@
+# Self-hosted SonarQube Community Build (roadmap item 19): run it, scan both
+# repositories once, compare with SonarQube Cloud (item 18, which stays the
+# one in CI). Its own project, nothing shared with the app stack.
+#
+#   scripts/sonarqube-local.sh          # start, scan both repos, print the URL
+#   open http://localhost:9000          # admin / the password in .sonarqube-local
+#   docker compose -f compose.sonarqube.yaml down      # stop (data kept)
+#   docker compose -f compose.sonarqube.yaml down -v   # stop and delete everything
+#
+# Costs nothing but ~2-3 GB of RAM while running (SonarQube embeds
+# Elasticsearch, which needs vm.max_map_count >= 262144; Ubuntu's default
+# is higher). Listens on 127.0.0.1 only.
+
+name: radshift-sonarqube
+
+services:
+  sonarqube:
+    image: sonarqube:26.9.0.129388-community
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # No credentials in the URL (the password is the next variable).
+      SONAR_JDBC_URL: jdbc:postgresql://db:5432/sonar  # trufflehog:ignore
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: ${SONARQUBE_DB_PASSWORD:-sonar-local}
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_extensions:/opt/sonarqube/extensions
+      - sonarqube_logs:/opt/sonarqube/logs
+    ports:
+      - "127.0.0.1:9000:9000"
+    healthcheck:
+      # UP only once Elasticsearch, the database and the web server are ready
+      # (first start, with the database migration: a minute or two).
+      test: ["CMD-SHELL", "curl -fs http://localhost:9000/api/system/status | grep -q '\"status\":\"UP\"'"]
+      start_period: 300s
+      start_interval: 5s
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # The embedded H2 database is for evaluation only and can't be upgraded;
+  # Postgres is what a real install uses.
+  db:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: ${SONARQUBE_DB_PASSWORD:-sonar-local}
+      POSTGRES_DB: sonar
+    volumes:
+      - sonarqube_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d sonar"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  sonarqube_data:
+  sonarqube_extensions:
+  sonarqube_logs:
+  sonarqube_db:

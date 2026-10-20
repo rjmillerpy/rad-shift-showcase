@@ -1,0 +1,5 @@
+# actionlint (pre-commit hook): labels of the self-hosted runner on your
+# machine, used by the publish and deploy workflows (item 17).
+self-hosted-runner:
+  labels:
+    - radshift-local

@@ -1,0 +1,107 @@
+# Checks that run on every `git commit`, and in CI on every push.
+#
+#   uv sync --all-groups && source .venv/bin/activate
+#   pre-commit install              # once per clone: adds the git hook
+#   pre-commit run --all-files      # what CI runs
+#
+# A hook that rewrites files (ruff --fix, ruff format, whitespace) stops the
+# commit; review the changes, `git add` them, and commit again.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--unsafe] # compose override files use custom tags such as !reset
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+      - id: detect-private-key
+
+  # ruff and bandit run from your environment, so pyproject.toml's dev group
+  # (locked in uv.lock) is the single place their versions live, and the place
+  # Dependabot updates.
+  # Activate .venv before committing.
+  # Workflow files: expressions, contexts, runner labels, and shellcheck on
+  # every run: script. Caught item 17's job-level runner.temp before its
+  # first run. The Docker image variant: no Go toolchain needed.
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint-docker
+
+  # Duplicate-code ratchet (roadmap item 20): jscpd, independent of Sonar's
+  # duplication metric and stricter (50-token blocks). .jscpd.json sets the
+  # threshold just above today's level (0.32% on 2026-10-20 → 0.5%): it fails
+  # when duplication grows; lower it as clones are removed. Tests excluded.
+  - repo: local
+    hooks:
+      - id: jscpd
+        name: jscpd (duplicate code)
+        entry: jscpd --silent
+        language: node
+        additional_dependencies: ["jscpd@5.4.0"]
+        files: '\.py$'
+        pass_filenames: false
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      # Security scan of application code (roadmap item 3). Settings and the
+      # excluded test directories live in [tool.bandit] in pyproject.toml.
+      - id: bandit
+        name: bandit
+        entry: bandit -q -c pyproject.toml
+        language: system
+        types: [python]
+        files: ^(app|scripts|packages|open_core)/
+
+  # Secret scan of the files being committed (roadmap item 4). Needs the
+  # trufflehog binary on PATH (see README). Fails on any detection, verified
+  # or not. Skipped in the CI lint job, which has a dedicated `secrets` job.
+  - repo: local
+    hooks:
+      - id: trufflehog
+        name: trufflehog (secrets)
+        entry: trufflehog filesystem --no-update --results=verified,unknown,unverified --fail
+        language: system
+        # trufflehog ignores --exclude-paths for files named on the command
+        # line, which is how pre-commit calls it, so the same paths as
+        # .trufflehog-exclude.txt are excluded here (tests/test_secret_scan_excludes.py).
+        exclude: ^infra/tools/uv\.lock$
+
+  # mypy needs the project's own dependencies to understand its imports, so
+  # it runs from your environment (activate .venv first) rather than from an
+  # isolated hook environment.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: mypy
+        language: system
+        types: [python]
+        pass_filenames: false # checks the package configured in pyproject.toml
+
+  # tflint + Checkov when Terraform changes (infra/lint.sh; item 16). Needs
+  # tflint on PATH (see infra/README.md). Skipped in the CI lint job: the
+  # terraform job runs the same script.
+  - repo: local
+    hooks:
+      - id: infra-lint
+        name: infra lint (tflint + checkov)
+        entry: infra/lint.sh
+        language: system
+        files: ^infra/.*\.(tf|hcl)$
+        pass_filenames: false

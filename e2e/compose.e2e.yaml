@@ -1,0 +1,19 @@
+# Overrides layered on top of ../compose.yaml by e2e/run.sh:
+#
+#   docker compose -f compose.yaml -f e2e/compose.e2e.yaml ...
+#
+# Keeps test runs away from real external services, even on a machine whose
+# .env holds real keys. Values here win over both .env and compose.yaml.
+services:
+  backend:
+    build:
+      args:
+        # The API's own Playwright browsers are only for generator scraping,
+        # which these tests don't use. Skipping them saves ~1 GB and minutes.
+        INSTALL_BROWSERS: "false"
+    environment:
+      S3_BUCKET_NAME: ""      # signup's avatar upload fails fast (it's best-effort by design)
+      ANTHROPIC_API_KEY: ""   # no paid LLM calls; chronicle uses its rule-based fallback
+      RESEND_API_KEY: ""      # verification emails are logged, never sent
+    # Don't mount ~/.aws: no AWS credentials inside the test stack.
+    volumes: !reset []

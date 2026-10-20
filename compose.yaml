@@ -1,0 +1,116 @@
+# RadShift local stack: Postgres + FastAPI backend + Next.js frontend.
+#
+# Expects the two repos side by side:
+#   Projects/rad-shift/                        <- this file
+#   Projects/rad-shift-frontend/my-social-feed/
+#
+#   docker compose up --build        # build images and start everything
+#   open http://localhost:3000
+#
+# See DOCKER.md for the full walkthrough.
+
+name: radshift
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: radshift
+      POSTGRES_PASSWORD: ${RADSHIFT_DB_PASSWORD:-radshift-local}
+      POSTGRES_DB: radshift
+    volumes:
+      # Named volume: data survives `docker compose down`, is wiped by `down -v`.
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      # Only on localhost, and on 5433 so it can't clash with a local Postgres.
+      # Connect from your machine with: psql -h localhost -p 5433 -U radshift radshift
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U radshift -d radshift"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: .
+    # API keys and other settings (ANTHROPIC_API_KEY, JWT_SECRET, RESEND_API_KEY, ...)
+    # come from your .env. The `environment:` block below takes precedence, which
+    # is how the DB_* values in .env (your remote database) get replaced with
+    # this stack's local Postgres.
+    env_file: .env
+    environment:
+      DB_HOST: db            # the service name above; Compose provides DNS for it
+      DB_PORT: "5432"        # the container port, not the 5433 published to your host
+      DB_USER: radshift
+      DB_PASSWORD: ${RADSHIFT_DB_PASSWORD:-radshift-local}
+      DB_NAME: radshift
+      ALLOWED_ORIGINS: http://localhost:3000
+      APP_URL: http://localhost:3000
+      WIDGET_SERVER_EXECUTION_ENABLED: "false"
+      FLAGD_HOST: flagd     # feature flags, evaluated in-process from flagd's sync stream
+    volumes:
+      # Reuse your local AWS credentials for S3 uploads (read-only).
+      - ${HOME}/.aws:/home/app/.aws:ro
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+      # Started first so flags are ready on the first request; the API never
+      # waits on it (until it connects, every flag serves its safe fallback).
+      flagd:
+        condition: service_started
+    # /health pings the database (SELECT 1), so "healthy" means the API can do
+    # real work. urlopen raises on a 503, which makes the check fail. python
+    # because the slim image has no curl.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      # Startup: check every 2 s for up to 60 s; failures in this window don't
+      # count. Running: 3 failures 10 s apart = unhealthy within ~30 s.
+      start_period: 60s
+      start_interval: 2s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: ../rad-shift-frontend/my-social-feed
+      args:
+        # The browser calls the API directly, so this is the host-visible URL.
+        NEXT_PUBLIC_API_URL: http://localhost:5000
+    environment:
+      # Server-side code (route handlers) can't use the URL above: inside this
+      # container, localhost is the container itself. Read at runtime.
+      API_INTERNAL_URL: http://backend:5000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    # The image has node but no curl. 127.0.0.1, not localhost: the server
+    # listens on IPv4 only and localhost can resolve to ::1 first.
+    healthcheck:
+      test: ["CMD", "/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      start_period: 30s
+      start_interval: 2s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Feature flags (roadmap item 17b). Serves flags/flags.flagd.json and
+  # reloads it on save: edit the file and the API follows within a second,
+  # no restart or redeploy. Internal only; nothing is published.
+  flagd:
+    image: ghcr.io/open-feature/flagd:v0.17.0
+    command: ["start", "--uri", "file:/etc/flagd/flags.flagd.json"]
+    volumes:
+      # The directory, not the file: editors save by writing a new file and
+      # renaming it over the old one, and a single-file bind mount keeps
+      # pointing at the old one, so changes would never arrive.
+      - ./flags:/etc/flagd:ro
+    # No healthcheck: the image is distroless (no shell, wget or curl).
+    # Probes are on :8014 (/healthz, /readyz) for anything on the network.
+
+volumes:
+  pgdata:

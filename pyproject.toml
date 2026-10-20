@@ -1,0 +1,194 @@
+# Dependencies live here and exact versions (transitive ones too) in uv.lock.
+# Install with `uv sync` (see README). Pins are exact on purpose: this is an
+# application, not a library, and Dependabot proposes every bump as a PR.
+[project]
+name = "rad-shift"
+version = "0.1.0"
+requires-python = "==3.12.*"
+dependencies = [
+    "alembic==1.20.0",
+    "anthropic==1.13.0",
+    "bcrypt==5.0.0",
+    "beautifulsoup4==4.15.0",
+    "boto3==1.43.111",
+    "botocore",  # unpinned on purpose: boto3 pins its matching release; uv.lock has the exact version
+    "defusedxml==0.7.1",
+    "fastapi==0.143.0",
+    "feedparser==6.0.14",
+    "httpx==0.28.1",
+    "mutagen==1.48.1",
+    "nh3==0.3.7",
+    "openfeature-provider-flagd==0.5.2",
+    "openfeature-sdk==0.10.0",
+    "pillow==12.3.0",
+    "prometheus-client==0.26.0",
+    "psycopg2-binary==2.9.13",
+    "pydantic==2.14.1",
+    "PyJWT==2.15.1",
+    "python-dotenv==1.2.4",
+    "python-multipart==0.0.32",
+    "PyYAML==6.0.3",
+    "SQLAlchemy==2.1.1",
+    "starlette==1.7.0",
+    "uvicorn==0.54.0",
+]
+
+[dependency-groups]
+# Tests, linters and pre-commit's hooks. `uv sync` includes it by default.
+dev = [
+    "pytest==9.1.1",
+    "pytest-xdist==3.8.0",
+    "pytest-cov==7.1.0",
+    "httpx2==2.13.1",
+    "ruff==0.17.0",
+    "mypy==2.4.0",
+    "types-PyYAML==6.0.12.20260906",
+    "pre-commit==4.6.2",
+    "bandit[toml]==1.9.4",
+    "moto[ssm]==5.2.4",
+]
+# The end-to-end suite only drives a browser and reads the DB, so it installs
+# without the app: `uv sync --only-group e2e` (e2e/run.sh, integration.yml).
+e2e = [
+    "pytest==9.1.1",
+    "pytest-playwright==0.10.0",
+    "playwright==1.63.0",
+    "psycopg2-binary==2.9.13",
+    "httpx==0.28.1",
+]
+
+# Cooldown deferred: exclude-newer is recorded in uv.lock, so adding it re-locks and
+# rolls back every pin younger than the window (including anthropic, adopted
+# 2026-10-15, and possibly security releases). Dependabot's 14-day cooldown
+# gates new versions meanwhile. Add `exclude-newer = "14 days"` here once every
+# pin is older than that (from about 2026-11-03), when re-locking changes nothing.
+[tool.uv]  # nosemgrep: package_managers.uv.uv-missing-dependency-cooldown.uv-missing-dependency-cooldown
+# An app, not an installable package: install dependencies only.
+package = false
+
+
+
+[tool.pytest.ini_options]
+# Unit tests only by default; the e2e suite needs a running stack (e2e/run.sh).
+testpaths = [
+    "tests",
+]
+markers = [
+    "perf: timing-sensitive; CI runs these serially, after the parallel run",
+]
+filterwarnings = [
+    "error",
+    # Suppress third-party library warnings we cannot fix
+    "ignore:datetime.datetime.utcnow:DeprecationWarning:jwt",
+    "ignore:datetime.datetime.utcnow:DeprecationWarning:jose",
+    # starlette's TestClient still uses anyio.abc.BlockingPortal (anyio >= 4.15)
+    "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = [
+    "app",
+]
+branch = true
+
+[tool.coverage.report]
+skip_covered = true
+show_missing = true
+# Floor, not target: CI fails below it. Raise it as coverage grows; never lower it.
+fail_under = 95
+sort = "Cover"
+
+[tool.ruff]
+target-version = "py312"
+# The codebase was already written to ~100 columns; 88 (the default) would
+# rewrap far more lines for no readability gain.
+line-length = 100
+# Alembic revisions are generated files; they are not edited after the fact.
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+# Pinned explicitly: ruff's default rule set changes between versions, and CI
+# must not start failing because a new release turned more rules on.
+# Rule families are added one at a time, each with its fixes in its own commit.
+select = [
+    "E4", "E7", "E9", "F",  # core correctness: syntax errors, undefined/unused names
+    "I",                    # import sorting (replaces isort)
+    "UP",                   # pyupgrade: modern syntax for our Python version
+    "B",                    # bugbear: likely bugs (mutable defaults, bare raises, ...)
+    "SIM",                  # simplifications
+    "C4",                   # cleaner comprehensions / collection literals
+]
+ignore = [
+    # (str, Enum) -> StrEnum changes str(member) from "Cls.NAME" to the value:
+    # a behaviour change, not a style fix.
+    "UP042",
+]
+
+[tool.ruff.lint.isort]
+# Declared explicitly: ruff would otherwise treat `alembic` as first-party
+# because of the local alembic/ (migrations) directory.
+known-first-party = ["app", "tests", "e2e", "scripts"]
+known-third-party = ["alembic"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency-injection markers are designed to sit in default
+# arguments; they are not shared mutable state, so B008 shouldn't flag them.
+extend-immutable-calls = [
+    "fastapi.Depends", "fastapi.File", "fastapi.Form", "fastapi.Query",
+    "fastapi.Path", "fastapi.Header", "fastapi.Body",
+]
+
+[tool.mypy]
+python_version = "3.12"
+files = [
+    "app",
+]
+# The pydantic plugin type-checks model constructors (field names and types)
+# instead of treating every model as accepting **kwargs.
+plugins = ["pydantic.mypy"]
+# Several dependencies ship without type hints; don't fail on them.
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+# Ratchet: modules with known type debt, almost all from old-style SQLAlchemy
+# `Column(...)` models that mypy reads as Column[...] instead of str/int.
+# Every other module, and any NEW module, must type-check. Shrink this list by
+# migrating models to SQLAlchemy 2.0 `Mapped[...]` / `mapped_column`; never grow it.
+[[tool.mypy.overrides]]
+module = [
+    "app.amble.avatar.service",
+    "app.amble.avatar.views",
+    "app.amble.content.overrides_service",
+    "app.amble.content.service",
+    "app.auth.models",
+    "app.auth.service",
+    "app.auth.views",
+    "app.avatar.views",
+    "app.blog.service",
+    "app.blog.views",
+    "app.follow.views",
+    "app.generators.post_metadata",
+    "app.generators.scheduler",
+    "app.generators.service",
+    "app.generators.views",
+    "app.posts.feeds",
+    "app.posts.serializer",
+    "app.posts.service",
+    "app.posts.toggles",
+    "app.posts.views.crud",
+    "app.profile.service",
+    "app.widgets.service",
+]
+ignore_errors = true
+
+[tool.bandit]
+# Scanned: app/ and scripts/ (see .pre-commit-config.yaml). Test code is
+# excluded: pytest relies on `assert` (B101) and fixtures use fake passwords
+# (B105-B107). Accepted findings in app code carry `# nosec <ID> - <reason>`.
+exclude_dirs = [
+    "tests",
+    "e2e",
+    ".venv",
+    "alembic/versions",
+]

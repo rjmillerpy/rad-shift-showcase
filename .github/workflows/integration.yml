@@ -1,0 +1,70 @@
+name: Integration
+
+# End-to-end tests of the whole system: this repo's API + the frontend repo's
+# `main`, started together with docker compose, driven by a real browser.
+# rad-shift-frontend runs the same suite against this repo's `main`.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: End-to-end (full stack)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+
+      # Same side-by-side layout as on a dev machine, which compose.yaml expects.
+      - name: Check out backend (this repo)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: rad-shift
+
+      - name: Check out frontend (main)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ github.repository_owner }}/rad-shift-frontend-showcase
+          ref: main
+          path: rad-shift-frontend
+
+      # The e2e group installs without the app's own dependencies: the suite
+      # only drives a browser and reads the DB. activate-environment puts
+      # rad-shift/.venv/bin on PATH for playwright and run.sh's pytest.
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: "0.13.1"
+          python-version: "3.12"
+          working-directory: rad-shift
+          enable-cache: true
+          activate-environment: true
+
+      - name: Install e2e tools and Chromium
+        working-directory: rad-shift
+        run: |
+          uv sync --locked --only-group e2e
+          playwright install --with-deps chromium
+
+      - name: Run end-to-end suite
+        run: rad-shift/e2e/run.sh
+
+      # On failure: Playwright traces + screenshots and every container's logs.
+      # Download from the run's summary page; open a trace with
+      # `playwright show-trace trace.zip` to replay the test step by step.
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: e2e-failure
+          path: |
+            rad-shift/test-results/
+            rad-shift/e2e-stack.log
+          retention-days: 7

@@ -1,0 +1,11 @@
+# Dashboards come from files in the repo, so they are reviewed like code.
+# Edits made in the UI are lost on restart: export the JSON and commit it.
+apiVersion: 1
+
+providers:
+  - name: rad-shift
+    folder: rad-shift
+    type: file
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

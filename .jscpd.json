@@ -1,0 +1,9 @@
+{
+  "path": ["app", "scripts"],
+  "format": ["python"],
+  "minTokens": 50,
+  "threshold": 0.5,
+  "reporters": ["console"],
+  "gitignore": true,
+  "ignore": ["**/__pycache__/**"]
+}

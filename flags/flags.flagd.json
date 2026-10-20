@@ -1,0 +1,52 @@
+{
+  "$schema": "https://flagd.dev/schema/v0/flags.json",
+  "flags": {
+    "widget-server-execution": {
+      "state": "ENABLED",
+      "variants": {
+        "on": true,
+        "off": false
+      },
+      "defaultVariant": "on"
+    },
+    "chronicle-llm-narration": {
+      "state": "ENABLED",
+      "variants": {
+        "on": true,
+        "off": false
+      },
+      "defaultVariant": "off",
+      "targeting": {
+        "if": [
+          {
+            "==": [
+              {
+                "var": "is_admin"
+              },
+              true
+            ]
+          },
+          "on",
+          {
+            "!": {
+              "var": "targetingKey"
+            }
+          },
+          "off",
+          {
+            "fractional": [
+              [
+                "on",
+                10
+              ],
+              [
+                "off",
+                90
+              ]
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

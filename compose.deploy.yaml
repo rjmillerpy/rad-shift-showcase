@@ -1,0 +1,24 @@
+# Overlay used by CD (item 17): run published images instead of building.
+#
+#   scripts/deploy.py sets every variable below; see .github/workflows/deploy.yml.
+#
+# The stack is the same `radshift` project you run locally (same containers,
+# same database volume). Images come from ECR, tagged with the commit SHA;
+# nothing is built on the deploy target. The frontend image has its API URL
+# baked in at build time (http://localhost:5000 by default, the frontend
+# repository's NEXT_PUBLIC_API_URL variable), so deploys target the plain
+# stack, not the TLS overlay.
+
+services:
+  backend:
+    image: ${BACKEND_IMAGE:?set by scripts/deploy.py}
+    build: !reset null
+    # The deploy runs from the runner's checkout, which has no .env; the
+    # runner points this at yours.
+    env_file: !override
+      - ${RADSHIFT_ENV_FILE:?set by scripts/deploy.py}
+
+  frontend:
+    image: ${FRONTEND_IMAGE:?set by scripts/deploy.py}
+    # No build context needed (it's the other repository's checkout).
+    build: !reset null

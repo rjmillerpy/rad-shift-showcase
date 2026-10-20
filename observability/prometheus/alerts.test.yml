@@ -1,0 +1,99 @@
+# Unit tests for alerts.yml. Run: observability/check.sh (promtool test rules).
+# Series notation: "a+bxN" starts at a and adds b at each of N steps.
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  - name: sustained 10% errors fires after 5 minutes
+    interval: 1m
+    input_series:
+      # 60 requests a minute (1 req/s), 6 of them 503s.
+      - series: 'http_requests_total{job="backend", route="/posts", status="200"}'
+        values: "0+54x20"
+      - series: 'http_requests_total{job="backend", route="/health", status="503"}'
+        values: "0+6x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: HighServerErrorRate
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: HighServerErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: "10% of API requests are failing with a 5xx"
+              description: "Check the Errors panel and the backend logs on the rad-shift dashboard."
+
+  - name: 2% errors stays quiet
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="backend", route="/posts", status="200"}'
+        values: "0+98x20"
+      - series: 'http_requests_total{job="backend", route="/posts", status="500"}'
+        values: "0+2x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: HighServerErrorRate
+        exp_alerts: []
+
+  - name: a few failures with almost no traffic stay quiet
+    interval: 1m
+    input_series:
+      # One request a minute, a third of them failing: below the traffic floor.
+      - series: 'http_requests_total{job="backend", route="/posts", status="200"}'
+        values: "0+0.66x20"
+      - series: 'http_requests_total{job="backend", route="/posts", status="500"}'
+        values: "0+0.34x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: HighServerErrorRate
+        exp_alerts: []
+
+  - name: 4xx responses are the client's fault, not an outage
+    interval: 1m
+    input_series:
+      - series: 'http_requests_total{job="backend", route="/auth/login", status="401"}'
+        values: "0+60x20"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: HighServerErrorRate
+        exp_alerts: []
+
+  - name: database outage, healthchecks only (the local drill)
+    interval: 1m
+    input_series:
+      # Docker's healthcheck: one /health every 10 s, all 503.
+      - series: 'http_requests_total{job="backend", route="/health", status="503"}'
+        values: "0+6x20"
+    alert_rule_test:
+      - eval_time: 12m
+        alertname: HighServerErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: "100% of API requests are failing with a 5xx"
+              description: "Check the Errors panel and the backend logs on the rad-shift dashboard."
+
+  - name: failed scrapes fire BackendDown after a minute
+    interval: 1m
+    input_series:
+      - series: 'up{job="backend", instance="backend:5000"}'
+        values: "1 1 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: BackendDown
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: BackendDown
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: backend
+              instance: backend:5000
+            exp_annotations:
+              summary: "Prometheus can't scrape the API at backend:5000"
+              description: "The backend container is stopped, restarting or not answering /metrics."

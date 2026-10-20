@@ -1,0 +1,135 @@
+# Opt-in overlay: metrics, logs, a dashboard and alerts (roadmap item 15).
+#
+#   docker compose -f compose.yaml -f compose.observability.yaml up --build -d
+#   open http://localhost:3001     Grafana: the rad-shift dashboard (admin / radshift-local)
+#   open http://localhost:9090     Prometheus: targets, alert rules, queries
+#   open http://localhost:9093     Alertmanager: firing and silenced alerts
+#   open http://localhost:8025     Mailpit: the alert emails
+#
+# Works with the TLS overlay too (add -f compose.tls.yaml). Every UI listens
+# on 127.0.0.1 only. Stand-ins for the paid go-live pieces: Prometheus and
+# Grafana for CloudWatch metrics and dashboards, Loki for CloudWatch Logs,
+# Mailpit for SNS email (see infra/monitoring.tf). Config checks and alert
+# rule tests: observability/check.sh.
+#
+# Nothing here depends on a service in compose.yaml, so this file also loads
+# on its own, which is how check.sh reads the pinned images.
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Local disk is the only cost; a week is plenty to look back on.
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      start_period: 20s
+      start_interval: 1s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.1
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "127.0.0.1:9093:9093"
+    depends_on:
+      mailpit:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9093/-/ready"]
+      start_period: 20s
+      start_interval: 1s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Catches every email Alertmanager sends; nothing leaves the machine.
+  mailpit:
+    image: axllent/mailpit:v1.31.3
+    ports:
+      - "127.0.0.1:8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      start_period: 10s
+      start_interval: 1s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  loki:
+    image: grafana/loki:3.7.8
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./observability/loki/loki.yml:/etc/loki/loki.yml:ro
+      - loki_data:/loki
+    # No healthcheck: the image is distroless (no shell, wget or curl) and
+    # loki has no self-check command. Alloy retries pushes and Grafana
+    # retries queries until it is ready, so nothing has to wait for it.
+
+  # Ships container logs to Loki. It needs the Docker socket to read them,
+  # and read-only doesn't make that safe: anything that can talk to the
+  # socket can start a privileged container. Acceptable on a laptop; on ECS
+  # the awslogs driver does this job with no socket at all.
+  alloy:
+    image: grafana/alloy:v1.20.1
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Remembers how far it has read, so a restart doesn't resend old lines.
+      - alloy_data:/var/lib/alloy/data
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:13.2.3
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-radshift-local}
+      # Read-only viewing without logging in. Fine on 127.0.0.1; never on a
+      # public address.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/rad-shift.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      # 3000 is the frontend.
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      loki:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      start_period: 60s
+      start_interval: 2s
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  prometheus_data:
+  loki_data:
+  alloy_data:
+  grafana_data:
