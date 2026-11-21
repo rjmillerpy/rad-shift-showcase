@@ -100,7 +100,10 @@ def _load(pinned: str | None) -> Edition:
 
 @cache
 def _loaded() -> Edition:
-    edition = _load(os.environ.get(EDITION_ENV_VAR))
+    # Empty counts as unset: `RADSHIFT_EDITION=` in an env file (.env.example
+    # ships it that way) reaches the process as "", and compose passes it on
+    # over the image's own ENV.
+    edition = _load(os.environ.get(EDITION_ENV_VAR) or None)
     logger.info("Running the %s edition", edition.name)
     return edition
 

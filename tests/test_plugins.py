@@ -81,6 +81,25 @@ class TestLoad:
             plugins._load(None)
 
 
+class TestLoadedFromTheEnvironment:
+    @pytest.fixture()
+    def fresh_load(self):
+        plugins._loaded.cache_clear()
+        yield
+        plugins._loaded.cache_clear()
+
+    def test_an_empty_value_counts_as_unset(self, monkeypatch, fresh_load):
+        """`RADSHIFT_EDITION=` in .env (copied from .env.example) once crashed the e2e stack."""
+        monkeypatch.setenv(plugins.EDITION_ENV_VAR, "")
+        with patch(ENTRY_POINTS, return_value=_entry_points()):
+            assert plugins._loaded() is PUBLIC_EDITION
+
+    def test_a_set_value_is_the_pin(self, monkeypatch, fresh_load):
+        monkeypatch.setenv(plugins.EDITION_ENV_VAR, "enterprise")
+        with pytest.raises(EditionError, match="enterprise"):
+            plugins._loaded()
+
+
 class TestUseEdition:
     def test_overrides_and_restores(self):
         other = replace(PUBLIC_EDITION, name="other")
