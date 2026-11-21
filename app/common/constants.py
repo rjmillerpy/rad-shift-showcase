@@ -24,7 +24,3 @@ S3_URL_TEMPLATE = "https://{bucket}.s3.amazonaws.com/{key}"
 # unreachable instead of hanging a request.
 DB_CONNECT_TIMEOUT_SECONDS = 10
 DB_POOL_RECYCLE_SECONDS = 300
-
-# Logging
-LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
-LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"

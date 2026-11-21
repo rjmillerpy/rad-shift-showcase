@@ -6,7 +6,7 @@
   ],
   "timezone": "browser",
   "schemaVersion": 41,
-  "version": 1,
+  "version": 2,
   "editable": false,
   "refresh": "30s",
   "time": {
@@ -311,7 +311,7 @@
     {
       "id": 9,
       "type": "logs",
-      "title": "Backend logs",
+      "title": "Backend logs (filter by request id above)",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -324,7 +324,7 @@
       },
       "targets": [
         {
-          "expr": "{service=\"backend\"}",
+          "expr": "{service=\"backend\"} | request_id=~\"${request_id}.*\" | json | line_format \"{{.level}} {{.event}}{{if .route}} {{.method}} {{.route}} {{.status}} {{.duration_ms}}ms{{end}}{{if .user}} user={{.user}}{{end}}\"",
           "refId": "A",
           "datasource": {
             "type": "loki",
@@ -335,7 +335,39 @@
       "options": {
         "showTime": true,
         "wrapLogMessage": true,
-        "sortOrder": "Descending"
+        "sortOrder": "Descending",
+        "enableLogDetails": true
+      }
+    },
+    {
+      "id": 11,
+      "type": "logs",
+      "title": "Backend errors (level label)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "{service=\"backend\", level=~\"error|critical\"}",
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          }
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "enableLogDetails": true
       }
     },
     {
@@ -348,7 +380,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 30,
+        "y": 38,
         "w": 24,
         "h": 10
       },
@@ -368,5 +400,20 @@
         "sortOrder": "Descending"
       }
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "request_id",
+        "label": "Request id (X-Request-ID)",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "hide": 0
+      }
+    ]
+  }
 }

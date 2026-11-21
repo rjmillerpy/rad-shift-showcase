@@ -1,11 +1,13 @@
-"""Metrics, logs, dashboard and alert email (compose.observability.yaml, roadmap item 15).
+"""Metrics, logs, dashboard and alert email (compose.observability.yaml, roadmap items 15 and 24).
 
 Runs only with the overlay (`E2E_OBS=1 e2e/run.sh`). Each test follows one
 signal from the app to where a person would see it. The last one is a real
 outage drill: it stops the API and waits for the email.
 """
 
+import json
 import time
+import uuid
 from collections.abc import Callable
 
 import httpx
@@ -82,23 +84,36 @@ def test_alert_rules_are_loaded() -> None:
     assert all(rule["health"] == "ok" for rule in rules)
 
 
-def test_api_logs_reach_loki_through_grafana(api: httpx.Client) -> None:
-    api.get("/health")
+def _loki_streams(query: str) -> list[dict]:
+    # Through Grafana's datasource proxy: proves the provisioned Loki
+    # datasource works, not just that Loki has data.
+    response = httpx.get(
+        f"{GRAFANA}/api/datasources/proxy/uid/loki/loki/api/v1/query_range",
+        params={"query": query, "limit": "10", "since": "10m"},
+        auth=GRAFANA_ADMIN,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    return response.json()["data"]["result"]
 
-    def backend_log_lines() -> list[dict]:
-        # Through Grafana's datasource proxy: proves the provisioned Loki
-        # datasource works, not just that Loki has data.
-        response = httpx.get(
-            f"{GRAFANA}/api/datasources/proxy/uid/loki/loki/api/v1/query_range",
-            params={"query": '{service="backend"}', "limit": "10", "since": "10m"},
-            auth=GRAFANA_ADMIN,
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        return response.json()["data"]["result"]
 
-    streams = _wait_for(backend_log_lines, LOG_WAIT_SECONDS, "backend logs in Loki")
-    assert streams[0]["stream"]["project"].startswith("radshift")
+def test_a_request_can_be_found_in_loki_by_its_id(api: httpx.Client) -> None:
+    """Item 24: the id a user would see in a response header leads to the
+    server's JSON line, with level as a label and the id as structured metadata."""
+    request_id = f"e2e-{uuid.uuid4().hex}"
+    response = api.get("/posts/", headers={"X-Request-ID": request_id})
+    assert response.headers["X-Request-ID"] == request_id
+
+    streams = _wait_for(
+        lambda: _loki_streams(f'{{service="backend", level="info"}} | request_id="{request_id}"'),
+        LOG_WAIT_SECONDS,
+        "the request's log line in Loki",
+    )
+    (stream,) = streams
+    assert stream["stream"]["project"].startswith("radshift")
+    (_, line), *_ = stream["values"]
+    fields = json.loads(line)
+    assert (fields["event"], fields["route"], fields["status"]) == ("http.request", "/posts/", 200)
 
 
 def test_dashboard_is_provisioned_for_anonymous_viewers() -> None:

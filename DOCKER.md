@@ -115,13 +115,17 @@ How the pieces connect:
 
 ```
 backend /metrics ──scrape every 15 s──► Prometheus ──alert rules──► Alertmanager ──SMTP──► Mailpit
-container stdout ──Docker socket──► Alloy ──push──► Loki
+container stdout ──Docker socket──► Alloy ──JSON → level label, request_id metadata──► Loki
                                      Grafana reads Prometheus, Loki and Alertmanager
 ```
 
 Try an alert: `docker compose stop backend`. BackendDown fires after a minute
 of failed scrapes and the email shows up in Mailpit about two minutes after
 the stop. `docker compose start backend` sends the "resolved" email.
+
+Find one request: copy the `X-Request-ID` header from the browser's network
+tab into the dashboard's "Request id" box, or query
+`{service="backend"} | request_id="<id>"` in Explore.
 
 Things worth knowing:
 - **Alloy reads the Docker socket**, and read-only doesn't make that safe:
@@ -136,7 +140,7 @@ Things worth knowing:
   and Alloy validate their own files, and `promtool test rules` runs the
   alert rule tests in `observability/prometheus/alerts.test.yml`.
 - **Test it** with `E2E_OBS=1 e2e/run.sh`: scrapes, route labels, rules
-  loaded, logs reaching Loki through Grafana, the dashboard, and a real
+  loaded, a request found in Loki by its id through Grafana, the dashboard, and a real
   drill that stops the API and waits for the email.
 
 ## Things that commonly trip people up

@@ -17,6 +17,7 @@ from app.common.auth_jwt import (
     JWTDecodeError,
     MissingTokenError,
 )
+from app.logs.middleware import USER_STATE_KEY
 
 SECRET = os.environ["JWT_SECRET"]
 WRONG_SECRET = "a-different-secret-also-32-bytes-long"
@@ -186,6 +187,27 @@ class TestOptional:
     def test_present_but_invalid_token_still_raises(self):
         with pytest.raises(JWTDecodeError):
             _with_header("Bearer not.a.token").jwt_optional()
+
+
+class TestRequestAttribution:
+    """A verified username is left on the request for its log line."""
+
+    @pytest.mark.parametrize("check", ["jwt_required", "jwt_optional"])
+    def test_a_verified_token_names_the_user(self, check):
+        request = _request(f"Bearer {AuthJWT().create_access_token(subject='alice')}")
+        getattr(AuthJWT(request), check)()
+        assert getattr(request.state, USER_STATE_KEY) == "alice"
+
+    def test_an_anonymous_request_names_nobody(self):
+        request = _request(None)
+        AuthJWT(request).jwt_optional()
+        assert not hasattr(request.state, USER_STATE_KEY)
+
+    def test_a_rejected_token_names_nobody(self):
+        request = _request("Bearer not.a.token")
+        with pytest.raises(JWTDecodeError):
+            AuthJWT(request).jwt_required()
+        assert not hasattr(request.state, USER_STATE_KEY)
 
 
 class TestOverHttp:

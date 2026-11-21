@@ -14,6 +14,9 @@ Tokens keep fastapi-jwt-auth's format (HS256; claims sub, iat, nbf, jti, exp,
 type="access", fresh=False) and lifetime, so tokens issued before the switch
 stay valid until they expire.
 
+A verified token's username is left on the request for its log line
+(app/logs/middleware.py), so every authenticated request is attributed.
+
 Errors: a missing or expired token is 401 (the frontend redirects to login on
 401); a malformed header or an otherwise invalid token is 422. Clients get one
 of the fixed messages below; why PyJWT rejected a token is logged, not returned.
@@ -29,6 +32,7 @@ import jwt
 from fastapi import Request
 
 from app.common.config import Config
+from app.logs.middleware import USER_STATE_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +99,7 @@ class AuthJWT:
     def __init__(self, req: Request = None) -> None:  # type: ignore[assignment]
         # FastAPI passes the Request when used as a dependency; scripts and
         # tests construct it bare to mint or decode tokens.
+        self._request = req
         self._header: str | None = req.headers.get(HEADER_NAME) if req is not None else None
         self._token: str | None = None
         self._claims: dict[str, Any] | None = None
@@ -119,13 +124,13 @@ class AuthJWT:
         token = self._token_from_header()
         if token is None:
             raise MissingTokenError(STATUS_UNAUTHENTICATED, MISSING_HEADER_MESSAGE)
-        self._claims = self._verified_access_claims(token)
+        self._accept(token)
 
     def jwt_optional(self) -> None:
         """Allow anonymous requests, but reject a token that is present and bad."""
         token = self._token_from_header()
         if token is not None:
-            self._claims = self._verified_access_claims(token)
+            self._accept(token)
 
     def get_jwt_subject(self) -> str | None:
         """The username from the verified token, or None if there was none."""
@@ -142,6 +147,12 @@ class AuthJWT:
         return self._verified_access_claims(token)
 
     # ── Internals ─────────────────────────────────────────────────────────
+    def _accept(self, token: str) -> None:
+        self._claims = self._verified_access_claims(token)
+        # A token only ever comes from a request's header, and PyJWT has
+        # already required "sub" and checked it is a string.
+        setattr(self._request.state, USER_STATE_KEY, self._claims[CLAIM_SUBJECT])
+
     def _token_from_header(self) -> str | None:
         if self._header is None:
             return None

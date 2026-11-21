@@ -32,7 +32,33 @@ discovery.relabel "radshift" {
 loki.source.docker "radshift" {
   host       = "unix:///var/run/docker.sock"
   targets    = discovery.relabel.radshift.output
+  forward_to = [loki.process.backend_json.receiver]
+}
+
+// The backend writes one JSON object per line (app/logs/). Its level becomes
+// a label, so {service="backend", level="error"} is an index lookup. The
+// request id becomes structured metadata instead: searchable on each line
+// ({service="backend"} | request_id="..."), but not a label, because a label
+// value per request would make a new stream for every request and swamp
+// Loki's index. Other services' lines pass through untouched.
+loki.process "backend_json" {
   forward_to = [loki.write.local.receiver]
+
+  stage.match {
+    selector = "{service=\"backend\"}"
+
+    stage.json {
+      expressions = { level = "", request_id = "" }
+    }
+
+    stage.labels {
+      values = { level = "" }
+    }
+
+    stage.structured_metadata {
+      values = { request_id = "" }
+    }
+  }
 }
 
 loki.write "local" {

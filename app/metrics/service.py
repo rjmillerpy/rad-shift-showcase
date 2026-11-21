@@ -8,7 +8,8 @@ Two series families, the minimum a dashboard and an error-rate alert need:
 `route` is the route template ("/posts/{post_id}"), never the raw path:
 one label value per real path would create a new time series for every
 post id and every scanner probe, which is how a Prometheus runs out of
-memory. Paths that match no route share one value, UNMATCHED_ROUTE.
+memory. Paths that match no route share one value
+(app.common.route_templates.UNMATCHED_ROUTE).
 
 The process collector that prometheus_client registers by default adds
 CPU, memory and open file descriptors for free.
@@ -35,9 +36,6 @@ METRICS_ENABLED_ENV_VAR = "METRICS_ENABLED"
 # Where the scrape endpoint lives. Internal only: the proxy (caddy/Caddyfile)
 # and the load balancer (infra/alb.tf) refuse it from outside.
 METRICS_PATH = "/metrics"
-
-# The label value for any request no route matched (404s, scanner probes).
-UNMATCHED_ROUTE = "<unmatched>"
 
 # The media type Prometheus expects from a scrape.
 METRICS_CONTENT_TYPE = CONTENT_TYPE_LATEST

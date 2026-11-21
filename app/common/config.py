@@ -4,25 +4,24 @@ Missing required variables raise `ConfigError` immediately so misconfiguration
 surfaces at boot rather than as a cryptic downstream failure.
 """
 
-import logging
 import os
 import urllib.parse
 
 from dotenv import load_dotenv
 
-from app.common.constants import (
-    DEFAULT_ALLOWED_ORIGIN,
-    LOG_DATEFMT,
-    LOG_FORMAT,
-    MIN_JWT_SECRET_BYTES,
+from app.common.constants import DEFAULT_ALLOWED_ORIGIN, MIN_JWT_SECRET_BYTES
+from app.logs.constants import (
+    DEFAULT_LOG_LEVEL,
+    JSON_RENDERER,
+    LOG_LEVEL_ENV_VAR,
+    LOG_RENDERER_ENV_VAR,
 )
-
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT, datefmt=LOG_DATEFMT)
-for noisy in ("sqlalchemy.engine", "sqlalchemy.pool", "sqlalchemy.dialects"):
-    logging.getLogger(noisy).setLevel(logging.WARNING)
-
+from app.logs.setup import configure_logging
 
 load_dotenv()
+configure_logging(
+    os.getenv(LOG_RENDERER_ENV_VAR, JSON_RENDERER), os.getenv(LOG_LEVEL_ENV_VAR, DEFAULT_LOG_LEVEL)
+)
 
 
 class ConfigError(RuntimeError):

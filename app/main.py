@@ -1,4 +1,4 @@
-"""FastAPI app factory: lifespan, CORS, metrics, JWT error handling, router registration."""
+"""FastAPI app factory: lifespan, CORS, request logs, metrics, JWT error handling, router registration."""
 
 import logging
 from collections.abc import AsyncIterator
@@ -23,6 +23,8 @@ from .follow.views import follow_router
 from .generators.scheduler import start_scheduler, stop_scheduler
 from .generators.views import generator_router
 from .health.views import health_router
+from .logs.constants import REQUEST_ID_HEADER
+from .logs.middleware import RequestLogMiddleware
 from .metrics.middleware import MetricsMiddleware
 from .metrics.service import METRICS_PATH, REQUEST_METRICS, metrics_enabled
 from .metrics.views import metrics_router
@@ -99,6 +101,9 @@ def create_app() -> FastAPI:
         app.add_middleware(MetricsMiddleware, metrics=REQUEST_METRICS)
         app.include_router(metrics_router, prefix=METRICS_PATH)
         logger.info("Request metrics enabled at %s", METRICS_PATH)
+    # Outside the metrics middleware, so its id is bound before anything
+    # else logs; inside CORS, so even its 500s carry the CORS headers.
+    app.add_middleware(RequestLogMiddleware)
     # Added last, so it is outermost: every response, including an error
     # raised by any other middleware, carries the CORS headers. Inside
     # another middleware, that middleware's failures would reach the browser
@@ -109,6 +114,8 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # Lets the frontend read the id to show it in an error message.
+        expose_headers=[REQUEST_ID_HEADER],
     )
 
     create_tables()

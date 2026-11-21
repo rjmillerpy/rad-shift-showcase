@@ -8,8 +8,9 @@ from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from prometheus_client.parser import text_string_to_metric_families
 
+from app.common.route_templates import UNMATCHED_ROUTE
 from app.metrics.middleware import MetricsMiddleware
-from app.metrics.service import METRICS_PATH, UNMATCHED_ROUTE
+from app.metrics.service import METRICS_PATH
 
 from .conftest import sample_value
 

@@ -30,9 +30,3 @@ class TestDefaults:
 
     def test_default_from_email_looks_like_email(self):
         assert "@" in constants.DEFAULT_FROM_EMAIL
-
-
-class TestLogFormat:
-    def test_log_format_has_asctime_and_levelname(self):
-        assert "%(asctime)s" in constants.LOG_FORMAT
-        assert "%(levelname)s" in constants.LOG_FORMAT

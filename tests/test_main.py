@@ -4,6 +4,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.logs.constants import LOG_EVENT_REQUEST, REQUEST_ID_HEADER
+from app.logs.middleware import RequestLogMiddleware
+
 _ALL_PREFIXES = [
     "/auth",
     "/profile",
@@ -63,6 +66,33 @@ class TestCORSMiddleware:
             },
         )
         assert resp.headers.get("access-control-allow-origin") == "http://localhost:3000"
+
+
+class TestRequestLog:
+    def test_every_response_carries_a_request_id(self, client):
+        assert client.get("/posts/").headers[REQUEST_ID_HEADER]
+
+    def test_it_sits_just_inside_cors(self, client):
+        """Inside CORS, so its own 500s still carry CORS headers."""
+        assert client.app.user_middleware[1].cls is RequestLogMiddleware
+
+    def test_the_browser_may_read_the_request_id(self, client):
+        resp = client.get("/posts/", headers={"Origin": "http://localhost:3000"})
+        exposed = resp.headers["access-control-expose-headers"].lower()
+        assert REQUEST_ID_HEADER in exposed
+
+    def test_an_authenticated_request_is_logged_with_its_user(
+        self, client, create_user, auth_header, caplog
+    ):
+        create_user("alice")
+        client.get("/profile/me", headers=auth_header("alice"))
+        (record,) = [r for r in caplog.records if r.getMessage() == LOG_EVENT_REQUEST]
+        assert (record.route, record.status, record.user) == ("/profile/me", 200, "alice")
+
+    def test_an_anonymous_request_is_logged_without_one(self, client, caplog):
+        client.get("/posts/")
+        (record,) = [r for r in caplog.records if r.getMessage() == LOG_EVENT_REQUEST]
+        assert record.user is None
 
 
 class TestJWTExceptionHandler:
