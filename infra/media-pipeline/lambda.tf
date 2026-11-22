@@ -59,6 +59,7 @@ resource "aws_iam_role_policy" "image_variants" {
   policy = data.aws_iam_policy_document.image_variants.json
 }
 
+# nosemgrep: terraform.aws.security.aws-cloudwatch-log-group-unencrypted.aws-cloudwatch-log-group-unencrypted - encrypted at rest by default; a customer KMS key is $1/month
 resource "aws_cloudwatch_log_group" "image_variants" {
   # checkov:skip=CKV_AWS_158: CloudWatch encrypts logs at rest by default; a customer KMS key is $1/month
   # checkov:skip=CKV_AWS_338: debugging logs, kept 14 days on purpose (storage is billed)
@@ -66,6 +67,7 @@ resource "aws_cloudwatch_log_group" "image_variants" {
   retention_in_days = var.log_retention_days
 }
 
+# nosemgrep: terraform.aws.security.aws-lambda-x-ray-tracing-not-active.aws-lambda-x-ray-tracing-not-active - X-Ray adds cost; each image's run is in the Step Functions execution history, and the app's traces are OpenTelemetry (item 26)
 resource "aws_lambda_function" "image_variants" {
   # checkov:skip=CKV_AWS_117: reaches only S3 and CloudWatch over AWS's public endpoints; a VPC would need a NAT (~$30/month) or endpoints
   # checkov:skip=CKV_AWS_50: X-Ray tracing adds cost; the app's own traces are OpenTelemetry (item 26)

@@ -76,6 +76,7 @@ resource "aws_iam_role_policy" "media_workflow" {
   policy = data.aws_iam_policy_document.media_workflow.json
 }
 
+# nosemgrep: terraform.aws.security.aws-cloudwatch-log-group-unencrypted.aws-cloudwatch-log-group-unencrypted - encrypted at rest by default; a customer KMS key is $1/month
 resource "aws_cloudwatch_log_group" "media_workflow" {
   # checkov:skip=CKV_AWS_158: CloudWatch encrypts logs at rest by default; a customer KMS key is $1/month
   # checkov:skip=CKV_AWS_338: debugging logs, kept 14 days on purpose (storage is billed)
