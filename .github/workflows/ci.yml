@@ -225,7 +225,7 @@ jobs:
         with:
           # The action's scanner image defaults to "latest"; pin it too. Dependabot
           # bumps the `uses:` tag above but not this input: update both together.
-          version: 3.99.2
+          version: 3.99.7
           extra_args: --results=verified,unknown,unverified --exclude-paths=.trufflehog-exclude.txt
 
   build:
