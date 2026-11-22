@@ -8,7 +8,7 @@
 # never reach the final image.
 
 # uv comes from Astral's image (a named stage so Dependabot can bump it).
-FROM ghcr.io/astral-sh/uv:0.13.8 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.9 AS uv
 
 # Pinned by digest (Python 3.12.16, pushed 2026-11-08): a bare tag means
 # whatever copy the build host has cached, which is how an unpatched base
