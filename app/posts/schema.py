@@ -50,6 +50,9 @@ class PostResponse:
     video_url: str | None
     audio_url: str | None
     image_urls: list[str] | None = None
+    # Every size each image is available at, original included, keyed by
+    # width: {url: {"480": webp url, "2000": url}} (a srcset's candidates).
+    image_variants: dict[str, dict[str, str]] | None = None
     document_urls: list[str] | None = None
     replies_count: int = 0
     quotes_count: int = 0

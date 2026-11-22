@@ -55,3 +55,33 @@ variable "log_retention_days" {
     error_message = "Keep logs between 1 and 90 days."
   }
 }
+
+variable "batch_size" {
+  description = "Upload messages per function invocation."
+  type        = number
+  default     = 5
+
+  validation {
+    # Five images of up to 50 MB each in 1.5 GB, inside the 60 s timeout.
+    condition     = var.batch_size >= 1 && var.batch_size <= 10
+    error_message = "Keep batches between 1 and 10: each image is decoded in memory."
+  }
+}
+
+variable "max_receive_count" {
+  description = "Attempts per upload before it is parked in the dead-letter queue."
+  type        = number
+  default     = 3
+}
+
+variable "alert_email" {
+  description = "Gets an email when an upload lands in the dead-letter queue (confirm the subscription email first). Set in media.auto.tfvars (gitignored); empty = no subscription."
+  type        = string
+  default     = ""
+}
+
+variable "app_user_name" {
+  description = "The API's IAM user (infra/account/app_user.tf), which polls the results queue."
+  type        = string
+  default     = "radshift-app"
+}

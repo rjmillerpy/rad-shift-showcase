@@ -101,5 +101,15 @@ class TestBuildPostResponses:
         )
         assert results[0].is_saved_by_me is True
 
+    def test_image_variants_are_passed_through(self, create_user, create_post, db_session):
+        """Recorded by the media pipeline (app/media/); absent until then."""
+        post = create_post(user=create_user(username="ser_variants"))
+        (before,) = serializer.build_post_responses([post], None, db_session)
+        variants = {"https://b.s3.amazonaws.com/posts/a.jpg": {"480": "https://b/v-480.webp"}}
+        post.image_variants = variants
+        db_session.commit()
+        (after,) = serializer.build_post_responses([post], None, db_session)
+        assert (before.image_variants, after.image_variants) == (None, variants)
+
     def test_backwards_compat_alias(self):
         assert serializer._build_post_responses is serializer.build_post_responses

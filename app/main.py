@@ -26,6 +26,7 @@ from .generators.views import generator_router
 from .health.views import health_router
 from .logs.constants import REQUEST_ID_HEADER
 from .logs.middleware import RequestLogMiddleware
+from .media import worker as media_results
 from .metrics.middleware import MetricsMiddleware
 from .metrics.service import METRICS_PATH, REQUEST_METRICS, metrics_enabled
 from .metrics.views import metrics_router
@@ -72,9 +73,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     flags.configure()
     start_scheduler()
     logger.info("Generator scheduler started")
+    if media_results.start():
+        logger.info("Polling the media results queue")
     try:
         yield
     finally:
+        media_results.stop()
         stop_scheduler()
         logger.info("Generator scheduler stopped")
         flags.shutdown()

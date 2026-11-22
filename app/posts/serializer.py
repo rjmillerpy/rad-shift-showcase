@@ -175,6 +175,7 @@ def _build_single_response(
         profile_picture_url=post.user.profile_picture_url,
         image_url=post.image_url,
         image_urls=post.image_urls or [],
+        image_variants=post.image_variants,
         video_url=post.video_url,
         audio_url=post.audio_url,
         document_urls=post.document_urls or [],

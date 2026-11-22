@@ -27,7 +27,22 @@ IMAGE_EXTENSIONS = frozenset({"jpg", "jpeg", "png", "webp"})
 # Uploads are capped at 50 MB; a decompression bomb is refused, not resized.
 MAX_IMAGE_PIXELS = 100_000_000
 
-# Every S3 call gives up instead of hanging until the Lambda timeout (rule 67).
-S3_CONNECT_TIMEOUT_SECONDS = 5
-S3_READ_TIMEOUT_SECONDS = 30
-S3_MAX_ATTEMPTS = 3
+# Every S3 and SQS call gives up instead of hanging until the Lambda timeout (rule 67).
+AWS_CONNECT_TIMEOUT_SECONDS = 5
+AWS_READ_TIMEOUT_SECONDS = 30
+AWS_MAX_ATTEMPTS = 3
+
+# Where finished work is reported for the API to record (item 28); set by
+# infra/media-pipeline/lambda.tf. The message is RESULT_* keys as JSON.
+RESULTS_QUEUE_URL_ENV = "RESULTS_QUEUE_URL"
+RESULT_BUCKET = "bucket"
+RESULT_SOURCE_KEY = "source_key"
+# {"480": "variants/posts/x-480.webp", ...}; widths as strings (JSON keys).
+RESULT_VARIANTS = "variants"
+# The original's width as displayed (after EXIF rotation), so a browser can
+# weigh it against the variants in a srcset.
+RESULT_WIDTH = "width"
+
+# S3 sends this once when a notification target is saved, to prove it can
+# deliver. It names no object.
+S3_TEST_EVENT = "s3:TestEvent"

@@ -15,6 +15,10 @@ class PostModel(Base):
     user = relationship("User", back_populates="posts")
     image_url = Column(String, nullable=True)
     image_urls = Column(JSON, nullable=True)  # Array of image URLs for multi-image posts
+    # {original image URL: {"480": WebP URL, "1280": ..., "<its width>": the
+    # original}}, every size it's available at, filled in after upload by the
+    # media pipeline (app/media/); absent until then.
+    image_variants = Column(JSON, nullable=True)
     video_url = Column(String, nullable=True)
     audio_url = Column(String, nullable=True)
     document_urls = Column(JSON, nullable=True)  # Array of document/file URLs
