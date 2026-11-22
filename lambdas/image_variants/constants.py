@@ -32,9 +32,8 @@ AWS_CONNECT_TIMEOUT_SECONDS = 5
 AWS_READ_TIMEOUT_SECONDS = 30
 AWS_MAX_ATTEMPTS = 3
 
-# Where finished work is reported for the API to record (item 28); set by
-# infra/media-pipeline/lambda.tf. The message is RESULT_* keys as JSON.
-RESULTS_QUEUE_URL_ENV = "RESULTS_QUEUE_URL"
+# The result the function returns; the workflow sends it to the API's
+# results queue as is (app/media/ reads the same keys).
 RESULT_BUCKET = "bucket"
 RESULT_SOURCE_KEY = "source_key"
 # {"480": "variants/posts/x-480.webp", ...}; widths as strings (JSON keys).
@@ -42,7 +41,5 @@ RESULT_VARIANTS = "variants"
 # The original's width as displayed (after EXIF rotation), so a browser can
 # weigh it against the variants in a srcset.
 RESULT_WIDTH = "width"
-
-# S3 sends this once when a notification target is saved, to prove it can
-# deliver. It names no object.
-S3_TEST_EVENT = "s3:TestEvent"
+# Returned instead when there's nothing to report, with the reason.
+RESULT_SKIPPED = "skipped"

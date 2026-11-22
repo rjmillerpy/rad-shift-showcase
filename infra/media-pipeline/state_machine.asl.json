@@ -1,0 +1,136 @@
+{
+  "Comment": "Item 29: one execution per queued S3 notification. Resize each image (retried), report the result to the API's queue, and park anything that still fails in the dead-letter queue with its error. Rendered by templatefile() in step_functions.tf.",
+  "StartAt": "EachMessage",
+  "States": {
+    "EachMessage": {
+      "Type": "Map",
+      "Comment": "EventBridge Pipes hands over a batch of SQS messages as an array.",
+      "ItemsPath": "$",
+      "ItemSelector": {
+        "notification.$": "States.StringToJson($$.Map.Item.Value.body)",
+        "raw.$": "$$.Map.Item.Value.body"
+      },
+      "ItemProcessor": {
+        "ProcessorConfig": { "Mode": "INLINE" },
+        "StartAt": "IsTestEvent",
+        "States": {
+          "IsTestEvent": {
+            "Type": "Choice",
+            "Comment": "S3 sends one s3:TestEvent (no Records) when the notification is saved.",
+            "Choices": [
+              { "Variable": "$.notification.Records", "IsPresent": false, "Next": "TestEventDone" }
+            ],
+            "Default": "EachImage"
+          },
+          "TestEventDone": { "Type": "Succeed" },
+          "EachImage": {
+            "Type": "Map",
+            "ItemsPath": "$.notification.Records",
+            "ItemSelector": {
+              "bucket.$": "$$.Map.Item.Value.s3.bucket.name",
+              "key.$": "$$.Map.Item.Value.s3.object.key",
+              "raw.$": "$.raw"
+            },
+            "ItemProcessor": {
+              "ProcessorConfig": { "Mode": "INLINE" },
+              "StartAt": "MakeVariants",
+              "States": {
+                "MakeVariants": {
+                  "Type": "Task",
+                  "Comment": "Resize one image (lambdas/image_variants/handler.py).",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": {
+                    "FunctionName": "${function_arn}",
+                    "Payload": { "bucket.$": "$.bucket", "key.$": "$.key" }
+                  },
+                  "ResultSelector": { "result.$": "$.Payload" },
+                  "ResultPath": "$.made",
+                  "TimeoutSeconds": ${task_timeout_seconds},
+                  "Retry": [
+                    {
+                      "Comment": "Lambda's own transient failures: throttling, a cold start that died.",
+                      "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                      ],
+                      "IntervalSeconds": 2,
+                      "MaxAttempts": 4,
+                      "BackoffRate": 2,
+                      "JitterStrategy": "FULL"
+                    },
+                    {
+                      "Comment": "The function raised (S3 unreachable or throttled) or ran out of time: worth two more tries.",
+                      "ErrorEquals": ["States.TaskFailed", "States.Timeout"],
+                      "IntervalSeconds": 5,
+                      "MaxAttempts": ${max_attempts},
+                      "BackoffRate": 3
+                    }
+                  ],
+                  "Catch": [
+                    { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ParkInDeadLetterQueue" }
+                  ],
+                  "Next": "AnyVariants"
+                },
+                "AnyVariants": {
+                  "Type": "Choice",
+                  "Comment": "Nothing to report for a non-image, a broken file or one narrower than every variant.",
+                  "Choices": [
+                    { "Variable": "$.made.result.variants", "IsPresent": true, "Next": "ReportResult" }
+                  ],
+                  "Default": "NothingToReport"
+                },
+                "NothingToReport": { "Type": "Succeed" },
+                "ReportResult": {
+                  "Type": "Task",
+                  "Comment": "The API polls this queue and records the sizes on the post (app/media/).",
+                  "Resource": "arn:aws:states:::sqs:sendMessage",
+                  "Parameters": {
+                    "QueueUrl": "${results_queue_url}",
+                    "MessageBody.$": "$.made.result"
+                  },
+                  "Retry": [
+                    {
+                      "ErrorEquals": ["States.ALL"],
+                      "IntervalSeconds": 2,
+                      "MaxAttempts": 3,
+                      "BackoffRate": 2
+                    }
+                  ],
+                  "Catch": [
+                    { "ErrorEquals": ["States.ALL"], "ResultPath": "$.error", "Next": "ParkInDeadLetterQueue" }
+                  ],
+                  "End": true
+                },
+                "ParkInDeadLetterQueue": {
+                  "Type": "Task",
+                  "Comment": "The original notification, so a redrive to the uploads queue replays it; the error rides along as attributes. The dead-letter alarm emails.",
+                  "Resource": "arn:aws:states:::sqs:sendMessage",
+                  "Parameters": {
+                    "QueueUrl": "${dead_letter_queue_url}",
+                    "MessageBody.$": "$.raw",
+                    "MessageAttributes": {
+                      "error": { "DataType": "String", "StringValue.$": "$.error.Error" },
+                      "key": { "DataType": "String", "StringValue.$": "$.key" },
+                      "execution": { "DataType": "String", "StringValue.$": "$$.Execution.Id" }
+                    }
+                  },
+                  "ResultPath": null,
+                  "Next": "Failed"
+                },
+                "Failed": {
+                  "Type": "Fail",
+                  "Error": "ImageFailed",
+                  "Cause": "Parked in the dead-letter queue after retries; see its message attributes."
+                }
+              }
+            },
+            "End": true
+          }
+        }
+      },
+      "End": true
+    }
+  }
+}

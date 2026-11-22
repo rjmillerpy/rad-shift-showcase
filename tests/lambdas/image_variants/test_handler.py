@@ -1,7 +1,6 @@
-"""Tests for lambdas/image_variants/handler.py, against moto's in-memory S3 and SQS."""
+"""Tests for lambdas/image_variants/handler.py, against moto's in-memory S3."""
 
 import io
-import json
 import os
 from collections.abc import Iterator
 
@@ -15,7 +14,6 @@ os.environ.setdefault("AWS_DEFAULT_REGION", "us-east-2")
 from lambdas.image_variants import handler  # noqa: E402 - needs the region set first
 from lambdas.image_variants.constants import (  # noqa: E402
     CACHE_CONTROL,
-    RESULTS_QUEUE_URL_ENV,
     SOURCE_PREFIX,
     VARIANT_CONTENT_TYPE,
     VARIANT_PREFIX,
@@ -36,20 +34,10 @@ def s3() -> Iterator[object]:
 
 
 @pytest.fixture()
-def results(s3, monkeypatch) -> object:
-    """The results queue, with the handler's clients pointed at moto."""
-    sqs = boto3.client("sqs", region_name="us-east-2")
-    url = sqs.create_queue(QueueName="radshift-test-results")["QueueUrl"]
-    monkeypatch.setenv(RESULTS_QUEUE_URL_ENV, url)
+def wired(s3, monkeypatch) -> object:
+    """The handler's S3 client pointed at moto."""
     monkeypatch.setattr(handler, "_s3", s3)
-    monkeypatch.setattr(handler, "_sqs", sqs)
-
-    class Results:
-        def read(self) -> list[dict]:
-            messages = sqs.receive_message(QueueUrl=url, MaxNumberOfMessages=10).get("Messages", [])
-            return [json.loads(m["Body"]) for m in messages]
-
-    return Results()
+    return s3
 
 
 def _put_image(s3, key: str, size: tuple[int, int], fmt: str = "JPEG", **options) -> None:
@@ -58,18 +46,9 @@ def _put_image(s3, key: str, size: tuple[int, int], fmt: str = "JPEG", **options
     s3.put_object(Bucket=BUCKET, Key=key, Body=buf.getvalue())
 
 
-def _notification(*keys: str) -> str:
-    """An S3 ObjectCreated notification body, keys URL-encoded as S3 sends them."""
-    records = [
-        {"s3": {"bucket": {"name": BUCKET}, "object": {"key": key.replace(" ", "+")}}}
-        for key in keys
-    ]
-    return json.dumps({"Records": records})
-
-
-def _batch(*bodies: str) -> dict:
-    """An SQS event as Lambda delivers it, one message per body."""
-    return {"Records": [{"messageId": f"m{i}", "body": body} for i, body in enumerate(bodies)]}
+def _event(key: str) -> dict:
+    """What the workflow passes: the key URL-encoded, as S3's notification has it."""
+    return {"bucket": BUCKET, "key": key.replace(" ", "+")}
 
 
 def _image(s3, key: str) -> Image.Image:
@@ -141,63 +120,31 @@ class TestWhatIsSkipped:
     def test_non_post_images(self, s3, key):
         assert handler.process(BUCKET, key, s3) == (0, {})
 
-    def test_an_unreadable_image_is_done_not_retried(self, s3, results):
-        """Retrying can't fix a broken file, so it must not end in the dead-letter queue."""
-        s3.put_object(Bucket=BUCKET, Key="posts/broken_1_0.jpg", Body=b"not an image")
-        response = handler.handler(_batch(_notification("posts/broken_1_0.jpg")), None)
-        assert response == {"batchItemFailures": []}
-        assert results.read() == []
+    def test_an_unreadable_image_is_skipped_not_raised(self, wired):
+        """Retrying can't fix a broken file, so it must not fail the workflow."""
+        wired.put_object(Bucket=BUCKET, Key="posts/broken_1_0.jpg", Body=b"not an image")
+        assert handler.handler(_event("posts/broken_1_0.jpg"), None) == {
+            "skipped": "UnidentifiedImageError"
+        }
 
-    def test_s3s_test_event_is_done(self, results):
-        test_event = json.dumps({"Service": "Amazon S3", "Event": "s3:TestEvent"})
-        assert handler.handler(_batch(test_event), None) == {"batchItemFailures": []}
+    def test_a_non_image_is_skipped(self, wired):
+        assert handler.handler(_event("posts/clip_1.mp4"), None) == {"skipped": "no variants"}
 
 
 class TestHandler:
-    def test_results_are_reported_for_the_api(self, s3, results):
-        _put_image(s3, "posts/with space_1_0.jpg", (1000, 800))
-        response = handler.handler(_batch(_notification("posts/with space_1_0.jpg")), None)
-        assert response == {"batchItemFailures": []}
-        assert results.read() == [
-            {
-                "bucket": BUCKET,
-                "source_key": "posts/with space_1_0.jpg",
-                "width": 1000,
-                "variants": {"480": "variants/posts/with space_1_0-480.webp"},
-            }
-        ]
-
-    def test_an_image_too_small_for_any_variant_reports_nothing(self, s3, results):
-        _put_image(s3, "posts/tiny_1_0.jpg", (200, 200))
-        handler.handler(_batch(_notification("posts/tiny_1_0.jpg")), None)
-        assert results.read() == []
-
-    def test_every_object_in_a_notification(self, s3, results):
-        _put_image(s3, "posts/a_1_0.jpg", (1000, 800))
-        _put_image(s3, "posts/b_1_0.jpg", (1000, 800))
-        handler.handler(_batch(_notification("posts/a_1_0.jpg", "posts/b_1_0.jpg")), None)
-        assert {r["source_key"] for r in results.read()} == {"posts/a_1_0.jpg", "posts/b_1_0.jpg"}
-
-    def test_only_the_failing_message_is_retried(self, s3, results):
-        """A missing object (S3 error) fails its own message, not the batch."""
-        _put_image(s3, "posts/ok_1_0.jpg", (1000, 800))
-        batch = _batch(_notification("posts/gone_1_0.jpg"), _notification("posts/ok_1_0.jpg"))
-        assert handler.handler(batch, None) == {"batchItemFailures": [{"itemIdentifier": "m0"}]}
-        assert [r["source_key"] for r in results.read()] == ["posts/ok_1_0.jpg"]
-
-    def test_a_malformed_body_is_retried_then_parked(self, results):
-        assert handler.handler(_batch("not json"), None) == {
-            "batchItemFailures": [{"itemIdentifier": "m0"}]
+    def test_the_result_is_what_the_api_reads(self, wired):
+        _put_image(wired, "posts/with space_1_0.jpg", (1000, 800))
+        assert handler.handler(_event("posts/with space_1_0.jpg"), None) == {
+            "bucket": BUCKET,
+            "source_key": "posts/with space_1_0.jpg",
+            "width": 1000,
+            "variants": {"480": "variants/posts/with space_1_0-480.webp"},
         }
 
-    def test_a_result_that_cant_be_sent_is_retried(self, s3, results, monkeypatch):
-        """The variants exist but the API wouldn't hear of them: retry the message."""
-        _put_image(s3, "posts/a_1_0.jpg", (1000, 800))
-        monkeypatch.setenv(
-            RESULTS_QUEUE_URL_ENV, "https://sqs.us-east-2.amazonaws.com/123456789012/missing"
-        )
-        response = handler.handler(_batch(_notification("posts/a_1_0.jpg")), None)
-        assert response == {"batchItemFailures": [{"itemIdentifier": "m0"}]}
+    def test_an_image_too_small_for_any_variant_is_skipped(self, wired):
+        _put_image(wired, "posts/tiny_1_0.jpg", (200, 200))
+        assert handler.handler(_event("posts/tiny_1_0.jpg"), None) == {"skipped": "no variants"}
 
-    def test_an_event_without_records_does_nothing(self):
-        assert handler.handler({}, None) == {"batchItemFailures": []}
+    def test_a_missing_object_raises_for_the_workflow_to_retry(self, wired):
+        with pytest.raises(wired.exceptions.NoSuchKey):
+            handler.handler(_event("posts/gone_1_0.jpg"), None)

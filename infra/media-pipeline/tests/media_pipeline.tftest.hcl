@@ -51,6 +51,38 @@ mock_provider "aws" {
     target = aws_cloudwatch_log_group.image_variants
     values = { arn = "arn:aws:logs:us-east-2:123456789012:log-group:/aws/lambda/radshift-image-variants" }
   }
+  override_data {
+    target = data.aws_iam_policy_document.states_trust
+    values = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
+  }
+  override_data {
+    target = data.aws_iam_policy_document.pipes_trust
+    values = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
+  }
+  override_data {
+    target = data.aws_iam_policy_document.media_workflow
+    values = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
+  }
+  override_data {
+    target = data.aws_iam_policy_document.uploads_pipe
+    values = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
+  }
+  override_resource {
+    target = aws_iam_role.media_workflow
+    values = { arn = "arn:aws:iam::123456789012:role/radshift-media" }
+  }
+  override_resource {
+    target = aws_iam_role.uploads_pipe
+    values = { arn = "arn:aws:iam::123456789012:role/radshift-media-uploads-pipe" }
+  }
+  override_resource {
+    target = aws_cloudwatch_log_group.media_workflow
+    values = { arn = "arn:aws:logs:us-east-2:123456789012:log-group:/aws/vendedlogs/states/radshift-media" }
+  }
+  override_resource {
+    target = aws_sfn_state_machine.media
+    values = { arn = "arn:aws:states:us-east-2:123456789012:stateMachine:radshift-media" }
+  }
   override_resource {
     target = aws_sqs_queue.uploads
     values = {
@@ -186,14 +218,6 @@ run "failures_are_retried_parked_and_reported" {
     error_message = "Visibility timeout at least 6x the function's, or a slow batch is handed out twice."
   }
   assert {
-    condition     = aws_lambda_event_source_mapping.uploads.function_response_types == toset(["ReportBatchItemFailures"])
-    error_message = "Partial batch failures: one bad image must not retry the whole batch."
-  }
-  assert {
-    condition     = aws_lambda_event_source_mapping.uploads.scaling_config[0].maximum_concurrency == 2
-    error_message = "Bounded concurrency leaves the account's other executions free."
-  }
-  assert {
     condition     = aws_cloudwatch_metric_alarm.uploads_dead_letters.dimensions.QueueName == "radshift-media-uploads-dlq"
     error_message = "The alarm watches the dead-letter queue."
   }
@@ -233,16 +257,62 @@ run "an_address_subscribes_by_email" {
   }
 }
 
-run "the_function_reports_to_the_results_queue" {
+run "the_api_user_may_only_consume_results" {
   command = apply
 
   assert {
-    condition     = aws_lambda_function.image_variants.environment[0].variables.RESULTS_QUEUE_URL == aws_sqs_queue.results.url
-    error_message = "The function finds the results queue through RESULTS_QUEUE_URL (lambdas/image_variants/constants.py)."
-  }
-  assert {
     condition     = aws_iam_user_policy_attachment.app_results.user == "radshift-app"
     error_message = "The API's own user consumes results."
+  }
+  assert {
+    condition     = data.aws_iam_policy_document.app_results.statement[0].actions == toset(["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"])
+    error_message = "Receive and delete results, nothing else."
+  }
+}
+
+run "a_workflow_runs_each_upload" {
+  command = apply
+
+  assert {
+    condition     = aws_pipes_pipe.uploads.source == aws_sqs_queue.uploads.arn && aws_pipes_pipe.uploads.target == aws_sfn_state_machine.media.arn
+    error_message = "The Pipe takes uploads off the queue and starts the workflow."
+  }
+  assert {
+    condition     = aws_pipes_pipe.uploads.source_parameters[0].sqs_queue_parameters[0].batch_size == 1
+    error_message = "One execution per notification, so each upload has its own history."
+  }
+  assert {
+    condition     = aws_pipes_pipe.uploads.target_parameters[0].step_function_state_machine_parameters[0].invocation_type == "FIRE_AND_FORGET"
+    error_message = "Standard workflows are started asynchronously."
+  }
+  assert {
+    condition     = aws_sfn_state_machine.media.type == "STANDARD"
+    error_message = "Standard: a free tier and 90 days of execution history (Express has neither)."
+  }
+  assert {
+    condition     = aws_sfn_state_machine.media.logging_configuration[0].level == "ERROR" && !aws_sfn_state_machine.media.logging_configuration[0].include_execution_data
+    error_message = "Log failures only, without keys or results."
+  }
+  assert {
+    condition     = length(aws_lambda_function.image_variants.environment) == 0
+    error_message = "The function no longer needs the results queue: the workflow reports."
+  }
+}
+
+run "each_role_reaches_only_its_targets" {
+  command = plan
+
+  assert {
+    condition     = data.aws_iam_policy_document.media_workflow.statement[1].actions == toset(["sqs:SendMessage"])
+    error_message = "The workflow only sends: results, and parked failures."
+  }
+  assert {
+    condition     = data.aws_iam_policy_document.uploads_pipe.statement[1].actions == toset(["states:StartExecution"])
+    error_message = "The Pipe can start the workflow, not stop or read it."
+  }
+  assert {
+    condition     = length(data.aws_iam_policy_document.image_variants.statement) == 3
+    error_message = "The function reads uploads, writes variants and logs; no queue access."
   }
 }
 

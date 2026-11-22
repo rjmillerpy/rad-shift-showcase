@@ -17,3 +17,8 @@ output "dead_letter_queue_url" {
   description = "Uploads that failed every attempt; redrive with aws sqs start-message-move-task once fixed."
   value       = aws_sqs_queue.uploads_dlq.url
 }
+
+output "state_machine_arn" {
+  description = "The media workflow; its executions are in the Step Functions console."
+  value       = aws_sfn_state_machine.media.arn
+}

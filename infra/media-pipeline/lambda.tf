@@ -1,7 +1,8 @@
 # Item 27: web-sized WebP variants of every new post image
-# (lambdas/image_variants/). Since item 28, S3 notifies the uploads queue
-# (queue.tf) for each object created under posts/ with an image suffix, and
-# the function reads the queue in batches; it writes under variants/.
+# (lambdas/image_variants/). S3 notifies the uploads queue (queue.tf) for
+# each object created under posts/ with an image suffix, and since item 29 a
+# Step Functions workflow (step_functions.tf) calls the function once per
+# image; it writes under variants/ and returns the result.
 #
 # Cost, inside the always-free allowance at this app's volume: Lambda
 # includes 1M requests and 400,000 GB-seconds a month; one image takes about
@@ -46,16 +47,6 @@ data "aws_iam_policy_document" "image_variants" {
     resources = ["${data.aws_s3_bucket.media.arn}/${var.variant_prefix}*"]
   }
   statement {
-    sid       = "ReadUploadsQueue"
-    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
-    resources = [aws_sqs_queue.uploads.arn]
-  }
-  statement {
-    sid       = "ReportResults"
-    actions   = ["sqs:SendMessage"]
-    resources = [aws_sqs_queue.results.arn]
-  }
-  statement {
     sid       = "Logs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
     resources = ["${aws_cloudwatch_log_group.image_variants.arn}:*"]
@@ -78,10 +69,10 @@ resource "aws_cloudwatch_log_group" "image_variants" {
 resource "aws_lambda_function" "image_variants" {
   # checkov:skip=CKV_AWS_117: reaches only S3 and CloudWatch over AWS's public endpoints; a VPC would need a NAT (~$30/month) or endpoints
   # checkov:skip=CKV_AWS_50: X-Ray tracing adds cost; the app's own traces are OpenTelemetry (item 26)
-  # checkov:skip=CKV_AWS_116: a function DLQ only covers async invokes; it reads SQS, whose own redrive policy parks failures (queue.tf)
+  # checkov:skip=CKV_AWS_116: a function DLQ only covers async invokes; the workflow invokes it synchronously and parks failures itself (step_functions.tf)
   # checkov:skip=CKV_AWS_115: new accounts have a 10-concurrent-execution limit, all of it unreserved by rule; S3 invokes are bounded by uploads
   # checkov:skip=CKV_AWS_272: code signing needs AWS Signer profiles; the zip comes from this repository's own build
-  # checkov:skip=CKV_AWS_173: its one variable is a queue URL, not a secret; Lambda encrypts variables at rest by default
+  # checkov:skip=CKV_AWS_173: no environment variables, so nothing to encrypt
   function_name    = local.function_name
   role             = aws_iam_role.image_variants.arn
   runtime          = "python3.12"
@@ -92,10 +83,6 @@ resource "aws_lambda_function" "image_variants" {
   # A 50 MB photo decodes to a few hundred MB of pixels; memory also buys CPU.
   memory_size = 1536
   timeout     = local.function_timeout_seconds
-
-  environment {
-    variables = { RESULTS_QUEUE_URL = aws_sqs_queue.results.url }
-  }
 
   depends_on = [aws_cloudwatch_log_group.image_variants, aws_iam_role_policy.image_variants]
 }

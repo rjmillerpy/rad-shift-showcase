@@ -1,10 +1,11 @@
-# Item 28: the uploads queue between S3 and the function, a dead-letter queue
-# with an email alarm, and a results queue the API polls.
+# Item 28: the uploads queue between S3 and the work, a dead-letter queue
+# with an email alarm, and a results queue the API polls. Item 29 put a
+# Step Functions workflow between the queues (step_functions.tf).
 #
-#   S3 posts/*.jpg ──notify──► uploads queue ──batch──► image-variants Lambda ──► results queue ──poll──► API
-#                                   │ 3 failed receives                                          (records variants)
-#                                   ▼
-#                               dead-letter queue ──alarm──► SNS ──► email
+#   S3 posts/*.jpg ──notify──► uploads queue ──Pipe──► workflow (Lambda per image) ──► results queue ──poll──► API
+#                                   │ Pipe can't start it 3x        │ an image still failing        (records sizes)
+#                                   ▼                               ▼
+#                               dead-letter queue ◄─────────────────┘ ──alarm──► SNS ──► email
 #
 # Why a queue instead of S3 invoking the function directly (item 27): a
 # burst of uploads waits in the queue instead of hitting the account's
@@ -13,14 +14,14 @@
 # reported, instead of disappearing after S3's two async retries.
 #
 # Cost, inside the always-free allowance: SQS includes 1M requests a month.
-# Idle, Lambda's pollers long-poll the uploads queue (up to ~650k requests a
-# month) and the API long-polls results (~130k), so ~780k worst case. SNS
+# Idle, the Pipe long-polls the uploads queue and the API long-polls
+# results (~130k a month). SNS
 # includes 1,000 emails; CloudWatch, 10 alarms. SSE-SQS encryption is free.
 
 locals {
   uploads_queue_name = "${var.project}-media-uploads"
-  # AWS's guidance: at least six times the function's timeout, so a message
-  # isn't handed to a second poller while the first is still working on it.
+  # Long enough that a message isn't handed out twice while the Pipe is
+  # still starting its execution (seconds, normally).
   uploads_visibility_timeout = 6 * local.function_timeout_seconds
 }
 
@@ -72,20 +73,6 @@ resource "aws_sqs_queue_policy" "uploads" {
   policy    = data.aws_iam_policy_document.uploads_queue.json
 }
 
-resource "aws_lambda_event_source_mapping" "uploads" {
-  event_source_arn = aws_sqs_queue.uploads.arn
-  function_name    = aws_lambda_function.image_variants.arn
-  batch_size       = var.batch_size
-  # The function names the messages that failed; only those are retried.
-  function_response_types = ["ReportBatchItemFailures"]
-
-  scaling_config {
-    # Leaves the rest of the account's 10 concurrent executions free. 2 is
-    # the lowest Lambda allows.
-    maximum_concurrency = 2
-  }
-}
-
 # Where finished work is reported. The API polls it (app/media/), because
 # AWS can't reach a database on a laptop; on ECS it would work the same.
 resource "aws_sqs_queue" "results" {
@@ -107,10 +94,11 @@ resource "aws_sns_topic_subscription" "media_alert_email" {
   endpoint  = var.alert_email
 }
 
-# Anything in the dead-letter queue is an upload that failed three times.
+# Anything in the dead-letter queue is an upload that still failed after
+# its retries (parked by the workflow, or by SQS if the Pipe couldn't start it).
 resource "aws_cloudwatch_metric_alarm" "uploads_dead_letters" {
   alarm_name          = "${local.uploads_queue_name}-dead-letters"
-  alarm_description   = "An image upload failed ${var.max_receive_count} times and was parked in ${aws_sqs_queue.uploads_dlq.name}. Look at /aws/lambda/${local.function_name}, fix, then redrive the queue."
+  alarm_description   = "An image upload was parked in ${aws_sqs_queue.uploads_dlq.name} after its retries. Its message attributes name the error and the workflow execution; fix, then redrive the queue."
   namespace           = "AWS/SQS"
   metric_name         = "ApproximateNumberOfMessagesVisible"
   dimensions          = { QueueName = aws_sqs_queue.uploads_dlq.name }

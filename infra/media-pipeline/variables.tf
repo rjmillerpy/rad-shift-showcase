@@ -56,20 +56,8 @@ variable "log_retention_days" {
   }
 }
 
-variable "batch_size" {
-  description = "Upload messages per function invocation."
-  type        = number
-  default     = 5
-
-  validation {
-    # Five images of up to 50 MB each in 1.5 GB, inside the 60 s timeout.
-    condition     = var.batch_size >= 1 && var.batch_size <= 10
-    error_message = "Keep batches between 1 and 10: each image is decoded in memory."
-  }
-}
-
 variable "max_receive_count" {
-  description = "Attempts per upload before it is parked in the dead-letter queue."
+  description = "Attempts per upload before it is parked in the dead-letter queue: the workflow's tries at a failing image, and the Pipe's at starting the workflow."
   type        = number
   default     = 3
 }

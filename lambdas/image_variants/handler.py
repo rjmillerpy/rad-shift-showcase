@@ -1,17 +1,16 @@
-"""Lambda entry point: make web-sized variants of each new post image.
+"""Lambda entry point: make web-sized variants of one post image.
 
-S3 queues a notification for every object created under posts/ with an
-image extension, and Lambda hands this function batches from that queue
-(infra/media-pipeline/queue.tf). For each image it writes a WebP per width
-in VARIANT_WIDTHS, under variants/, keyed by the source: posts/a_1_0.jpg
-becomes variants/posts/a_1_0-480.webp and -1280.webp. The original is never
-changed, so a failure here costs a smaller image, never the post's. Then it
-sends the variant keys to the results queue, which the API polls to record
-them on the post (app/media/).
+A Step Functions workflow (infra/media-pipeline/state_machine.asl.json)
+calls this once per uploaded image with {"bucket", "key"}. It writes a WebP
+per width in VARIANT_WIDTHS, under variants/, keyed by the source:
+posts/a_1_0.jpg becomes variants/posts/a_1_0-480.webp and -1280.webp. The
+original is never changed, so a failure here costs a smaller image, never
+the post's.
 
-A message that fails is reported back by id (ReportBatchItemFailures), so
-only it is retried; after three tries SQS parks it in the dead-letter queue
-and an alarm emails. A broken image is not a failure: retrying can't fix it.
+It returns the result and the workflow does the rest: reporting it to the
+API's queue, retrying when this raises, and parking what keeps failing in
+the dead-letter queue. So this function only resizes: an error raises, and
+a broken image returns {"skipped": ...} because retrying can't fix it.
 
 Runs on AWS's python3.12 runtime, which provides boto3; the deployment zip
 carries Pillow and this package at the same path as in the repository, so
@@ -22,9 +21,7 @@ the handler is lambdas.image_variants.handler.handler in both
 from __future__ import annotations
 
 import io
-import json
 import logging
-import os
 import posixpath
 from typing import Any
 from urllib.parse import unquote_plus
@@ -42,11 +39,10 @@ from lambdas.image_variants.constants import (
     MAX_IMAGE_PIXELS,
     PUBLIC_ACL,
     RESULT_BUCKET,
+    RESULT_SKIPPED,
     RESULT_SOURCE_KEY,
     RESULT_VARIANTS,
     RESULT_WIDTH,
-    RESULTS_QUEUE_URL_ENV,
-    S3_TEST_EVENT,
     SOURCE_PREFIX,
     VARIANT_CONTENT_TYPE,
     VARIANT_PREFIX,
@@ -56,7 +52,6 @@ from lambdas.image_variants.constants import (
 
 # boto3 ships no type information for its clients.
 S3Client = Any
-SQSClient = Any
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -70,7 +65,6 @@ _AWS_CONFIG = Config(
     retries={"max_attempts": AWS_MAX_ATTEMPTS, "mode": "standard"},
 )
 _s3: S3Client = boto3.client("s3", config=_AWS_CONFIG)
-_sqs: SQSClient = boto3.client("sqs", config=_AWS_CONFIG)
 
 
 def variant_key(source_key: str, width: int) -> str:
@@ -127,56 +121,27 @@ def process(bucket: str, key: str, s3: S3Client) -> tuple[int, dict[int, str]]:
     return original_width, written
 
 
-def report(bucket: str, key: str, width: int, written: dict[int, str], sqs: SQSClient) -> None:
-    """Tell the API which variants exist for one upload (nothing to tell: no message)."""
+def handler(event: dict[str, Any], context: object) -> dict[str, Any]:
+    """{"bucket", "key"} from the workflow -> the result for the API's queue.
+
+    {bucket, source_key, width, variants} when variants were written, else
+    {"skipped": why}: not a post image, too narrow for any variant, or an
+    unreadable file. Anything else raises, for the workflow to retry.
+    """
+    bucket = event["bucket"]
+    # The workflow passes the key as S3's notification has it: URL-encoded
+    # (a space is "+").
+    key = unquote_plus(event["key"])
+    try:
+        width, written = process(bucket, key, _s3)
+    except (Image.UnidentifiedImageError, Image.DecompressionBombError) as err:
+        logger.warning("Skipped %s: %s", key, type(err).__name__)
+        return {RESULT_SKIPPED: type(err).__name__}
     if not written:
-        return
-    message = {
+        return {RESULT_SKIPPED: "no variants"}
+    return {
         RESULT_BUCKET: bucket,
         RESULT_SOURCE_KEY: key,
         RESULT_WIDTH: width,
         RESULT_VARIANTS: {str(w): target for w, target in written.items()},
     }
-    sqs.send_message(QueueUrl=os.environ[RESULTS_QUEUE_URL_ENV], MessageBody=json.dumps(message))
-
-
-def s3_objects(body: str) -> list[tuple[str, str]]:
-    """(bucket, key) for each object in one queued S3 notification."""
-    notification = json.loads(body)
-    if notification.get("Event") == S3_TEST_EVENT:
-        return []
-    # Keys arrive URL-encoded (a space is "+").
-    return [
-        (record["s3"]["bucket"]["name"], unquote_plus(record["s3"]["object"]["key"]))
-        for record in notification.get("Records", [])
-    ]
-
-
-def handle_message(body: str, s3: S3Client, sqs: SQSClient) -> None:
-    """Resize and report every image in one queued notification."""
-    for bucket, key in s3_objects(body):
-        try:
-            width, written = process(bucket, key, s3)
-        except (Image.UnidentifiedImageError, Image.DecompressionBombError) as err:
-            logger.warning("Skipped %s: %s", key, type(err).__name__)
-            continue
-        report(bucket, key, width, written, sqs)
-
-
-def handler(event: dict[str, Any], context: object) -> dict[str, list[dict[str, str]]]:
-    """One SQS batch -> variants for each message; returns the ones to retry.
-
-    A message that raises (S3 or SQS unreachable, a malformed body) is named
-    in batchItemFailures and comes back after the visibility timeout; the
-    rest of the batch is deleted as done. Redoing a message is harmless:
-    variant keys are derived from the source, so a retry overwrites the
-    same objects with the same bytes.
-    """
-    failures = []
-    for message in event.get("Records", []):
-        try:
-            handle_message(message["body"], _s3, _sqs)
-        except Exception:  # every failure is retried by SQS, then parked and alarmed
-            logger.exception("Failed message %s", message["messageId"])
-            failures.append({"itemIdentifier": message["messageId"]})
-    return {"batchItemFailures": failures}

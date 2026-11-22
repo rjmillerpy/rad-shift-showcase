@@ -6,7 +6,6 @@ from pathlib import Path
 
 from lambdas.image_variants.constants import (
     IMAGE_EXTENSIONS,
-    RESULTS_QUEUE_URL_ENV,
     SOURCE_PREFIX,
     VARIANT_PREFIX,
     VARIANT_WIDTHS,
@@ -40,7 +39,3 @@ def test_every_triggering_suffix_is_an_extension_the_code_handles():
 def test_widths_ascend_and_are_web_sized():
     assert list(VARIANT_WIDTHS) == sorted(VARIANT_WIDTHS)
     assert all(200 <= width <= 2560 for width in VARIANT_WIDTHS)
-
-
-def test_terraform_sets_the_variable_the_code_reads_for_the_results_queue():
-    assert re.search(rf"\b{RESULTS_QUEUE_URL_ENV}\s*=", (STACK / "lambda.tf").read_text())
