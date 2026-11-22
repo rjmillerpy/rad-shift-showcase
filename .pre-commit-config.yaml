@@ -66,7 +66,7 @@ repos:
         entry: bandit -q -c pyproject.toml
         language: system
         types: [python]
-        files: ^(app|scripts|packages|open_core)/
+        files: ^(app|lambdas|scripts|packages|open_core)/
 
   # Secret scan of the files being committed (roadmap item 4). Needs the
   # trufflehog binary on PATH (see README). Fails on any detection, verified

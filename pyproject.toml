@@ -108,6 +108,7 @@ filterwarnings = [
 [tool.coverage.run]
 source = [
     "app",
+    "lambdas",
 ]
 branch = true
 
@@ -162,6 +163,7 @@ extend-immutable-calls = [
 python_version = "3.12"
 files = [
     "app",
+    "lambdas",
 ]
 # The pydantic plugin type-checks model constructors (field names and types)
 # instead of treating every model as accepting **kwargs.

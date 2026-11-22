@@ -117,10 +117,10 @@ jobs:
 
       # The other root modules: the GitHub OIDC roles (items 13, 17), the
       # state bucket and the imported account setup (item 16), and the image
-      # registry (item 17). Same checks.
+      # registry (item 17), and the media pipeline (Phase 5). Same checks.
       - name: Other stacks - init, validate, test
         run: |
-          for stack in github-oidc state-backend account registry; do
+          for stack in github-oidc state-backend account registry media-pipeline; do
             echo "== $stack"
             (cd "$stack" && terraform init -backend=false -input=false > /dev/null && terraform validate && terraform test)
           done
