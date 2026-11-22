@@ -14,7 +14,12 @@ dependencies = [
 # 2026-10-15, and possibly security releases). Dependabot's 14-day cooldown
 # gates new versions meanwhile. Add `exclude-newer = "14 days"` here once every
 # pin is older than that (from about 2026-11-03), when re-locking changes nothing.
-[tool.uv]  # nosemgrep: package_managers.uv.uv-missing-dependency-cooldown.uv-missing-dependency-cooldown
+[tool.uv]
+# Supply-chain cooldown: resolve only releases at least two weeks old, so a
+# compromised release is usually caught and yanked before it can land here.
+# A rolling window (uv.lock records the span, not a date); a security fix
+# younger than that needs an explicit exclude-newer-package entry.
+exclude-newer = "14 days"
 # Checkov (every release so far) pins asteval==1.0.6, which has a sandbox
 # escape fixed in 1.0.9 (PYSEC-2026-3807 / GHSA-9w56-46f6-3qhx). A patch
 # release within 1.0.x; infra/lint.sh is the proof Checkov still works.

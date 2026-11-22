@@ -10,8 +10,12 @@
 # uv comes from Astral's image (a named stage so Dependabot can bump it).
 FROM ghcr.io/astral-sh/uv:0.13.1 AS uv
 
+# Pinned by digest (Python 3.12.16, pushed 2026-11-08): a bare tag means
+# whatever copy the build host has cached, which is how an unpatched base
+# (Python 3.12.15, a brotli CVE on CISA's exploited list) kept being built.
+# Dependabot bumps the digest; both stages must match.
 # ── builder: resolve and install dependencies into /opt/venv ────────────────
-FROM python:3.12-slim AS builder
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS builder
 
 # UV_PROJECT_ENVIRONMENT: build the venv at the path the runtime stage uses
 # (venvs hold absolute paths, so it must not move).
@@ -33,7 +37,7 @@ RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
 
 
 # ── runtime: what actually runs ─────────────────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS runtime
 
 # PYTHONDONTWRITEBYTECODE: no .pyc files (the app user can't write them anyway).
 # PYTHONUNBUFFERED: logs reach `docker logs` immediately.

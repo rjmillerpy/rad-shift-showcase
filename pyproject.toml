@@ -20,7 +20,7 @@ dependencies = [
     "nh3==0.3.7",
     "openfeature-provider-flagd==0.5.2",
     "openfeature-sdk==0.10.0",
-    "pillow==12.3.0",
+    "pillow==13.0.0",
     "prometheus-client==0.26.0",
     "psycopg2-binary==2.9.13",
     "pydantic==2.14.1",
@@ -53,7 +53,7 @@ dev = [
 e2e = [
     "pytest==9.1.1",
     "pytest-playwright==0.10.0",
-    "playwright==1.63.0",
+    "playwright==1.64.1",
     "psycopg2-binary==2.9.13",
     "httpx==0.28.1",
 ]
@@ -63,7 +63,12 @@ e2e = [
 # 2026-10-15, and possibly security releases). Dependabot's 14-day cooldown
 # gates new versions meanwhile. Add `exclude-newer = "14 days"` here once every
 # pin is older than that (from about 2026-11-03), when re-locking changes nothing.
-[tool.uv]  # nosemgrep: package_managers.uv.uv-missing-dependency-cooldown.uv-missing-dependency-cooldown
+[tool.uv]
+# Supply-chain cooldown: resolve only releases at least two weeks old, so a
+# compromised release is usually caught and yanked before it can land here.
+# A rolling window (uv.lock records the span, not a date); a security fix
+# younger than that needs an explicit exclude-newer-package entry.
+exclude-newer = "14 days"
 # An app, not an installable package: install dependencies only.
 package = false
 
