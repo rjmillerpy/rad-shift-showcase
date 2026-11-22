@@ -24,9 +24,9 @@ jobs:
       # uv pinned like every other tool here (the action defaults to latest).
       # activate-environment puts .venv/bin on PATH, which is where the
       # pre-commit hooks (ruff, bandit, mypy) find their tools.
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.1"
+          version: "0.13.8"
           python-version: "3.12"
           enable-cache: true
           activate-environment: true
@@ -60,9 +60,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.1"
+          version: "0.13.8"
           python-version: "3.12"
           enable-cache: true
           activate-environment: true
@@ -130,9 +130,9 @@ jobs:
         with:
           tflint_version: v0.64.0 # pinned; the action's default is "latest"
 
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: "0.13.1"
+          version: "0.13.8"
           python-version: "3.12"
           enable-cache: true
           cache-dependency-glob: infra/tools/uv.lock
@@ -185,7 +185,7 @@ jobs:
       contents: read
       id-token: write # lets the job request an OIDC token; nothing else gets it
     steps:
-      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: us-east-2
@@ -221,7 +221,7 @@ jobs:
       # Fails on any detection, verified or not: a key that can't be verified
       # (e.g. freshly generated) is still a leak.
       - name: Trufflehog (commits in this push)
-        uses: trufflesecurity/trufflehog@e76dff8a7e57d6df0c60ad8cbf5d5cba505a8fc9 # v3.99.2
+        uses: trufflesecurity/trufflehog@31ce31ee1abbcc7dc8eee5764c17121c3044c8b2 # v3.99.7
         with:
           # The action's scanner image defaults to "latest"; pin it too. Dependabot
           # bumps the `uses:` tag above but not this input: update both together.

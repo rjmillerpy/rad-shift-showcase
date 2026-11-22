@@ -6,30 +6,30 @@ name = "rad-shift"
 version = "0.1.0"
 requires-python = "==3.12.*"
 dependencies = [
-    "alembic==1.20.0",
+    "alembic==1.20.1",
     "anthropic==1.13.0",
     "bcrypt==5.0.0",
     "beautifulsoup4==4.15.0",
-    "boto3==1.43.111",
+    "boto3==1.43.126",
     "botocore",  # unpinned on purpose: boto3 pins its matching release; uv.lock has the exact version
     "defusedxml==0.7.1",
-    "fastapi==0.143.0",
+    "fastapi==0.162.0",
     "feedparser==6.0.14",
     "httpx==0.28.1",
     "mutagen==1.48.1",
     "nh3==0.3.7",
-    "openfeature-provider-flagd==0.5.2",
+    "openfeature-provider-flagd==0.6.1",
     "openfeature-sdk==0.10.0",
     "pillow==13.0.0",
     "prometheus-client==0.26.0",
     "psycopg2-binary==2.9.13",
-    "pydantic==2.14.1",
+    "pydantic==2.14.3",
     "PyJWT==2.15.1",
     "python-dotenv==1.2.4",
-    "python-multipart==0.0.32",
+    "python-multipart==0.0.33",
     "PyYAML==6.0.3",
     "SQLAlchemy==2.1.1",
-    "starlette==1.7.0",
+    "starlette==1.10.0",
     "structlog==26.1.0",
     "uvicorn==0.54.0",
 ]
@@ -37,21 +37,21 @@ dependencies = [
 [dependency-groups]
 # Tests, linters and pre-commit's hooks. `uv sync` includes it by default.
 dev = [
-    "pytest==9.1.1",
+    "pytest==9.2.0",
     "pytest-xdist==3.8.0",
     "pytest-cov==7.1.0",
-    "httpx2==2.13.1",
-    "ruff==0.17.0",
-    "mypy==2.4.0",
+    "httpx2==2.16.0",
+    "ruff==0.17.4",
+    "mypy==2.4.1",
     "types-PyYAML==6.0.12.20260906",
-    "pre-commit==4.6.2",
+    "pre-commit==4.7.0",
     "bandit[toml]==1.9.4",
-    "moto[ssm]==5.2.4",
+    "moto[ssm]==5.2.5",
 ]
 # The end-to-end suite only drives a browser and reads the DB, so it installs
 # without the app: `uv sync --only-group e2e` (e2e/run.sh, integration.yml).
 e2e = [
-    "pytest==9.1.1",
+    "pytest==9.2.0",
     "pytest-playwright==0.10.0",
     "playwright==1.64.1",
     "psycopg2-binary==2.9.13",
@@ -89,6 +89,9 @@ filterwarnings = [
     "ignore:datetime.datetime.utcnow:DeprecationWarning:jose",
     # starlette's TestClient still uses anyio.abc.BlockingPortal (anyio >= 4.15)
     "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
+    # pytest 9.2 deprecates session fixtures written as instance methods;
+    # pytest-playwright 0.10.0 (newest) defines base_url that way. Drop when it's fixed.
+    "ignore:Session-scoped fixtures defined as instance methods are deprecated:pytest.PytestRemovedIn10Warning",
 ]
 
 [tool.coverage.run]

@@ -6,7 +6,7 @@ name = "rad-shift-infra-tools"
 version = "0.1.0"
 requires-python = "==3.12.*"
 dependencies = [
-    "checkov==3.3.22",
+    "checkov==3.3.28",
 ]
 
 # Cooldown deferred: exclude-newer is recorded in uv.lock, so adding it re-locks and

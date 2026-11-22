@@ -102,7 +102,7 @@ services:
   # reloads it on save: edit the file and the API follows within a second,
   # no restart or redeploy. Internal only; nothing is published.
   flagd:
-    image: ghcr.io/open-feature/flagd:v0.17.0
+    image: ghcr.io/open-feature/flagd:v0.18.2
     command: ["start", "--uri", "file:/etc/flagd/flags.flagd.json"]
     volumes:
       # The directory, not the file: editors save by writing a new file and
