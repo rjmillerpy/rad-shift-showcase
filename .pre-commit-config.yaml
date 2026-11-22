@@ -80,7 +80,7 @@ repos:
         # trufflehog ignores --exclude-paths for files named on the command
         # line, which is how pre-commit calls it, so the same paths as
         # .trufflehog-exclude.txt are excluded here (tests/test_secret_scan_excludes.py).
-        exclude: ^infra/tools/uv\.lock$
+        exclude: ^infra/tools/uv\.lock$|^uv\.lock$
 
   # mypy needs the project's own dependencies to understand its imports, so
   # it runs from your environment (activate .venv first) rather than from an

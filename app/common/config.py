@@ -10,6 +10,12 @@ import urllib.parse
 from dotenv import load_dotenv
 
 from app.common.constants import DEFAULT_ALLOWED_ORIGIN, MIN_JWT_SECRET_BYTES
+from app.error_tracking.constants import (
+    SENTRY_DSN_ENV_VAR,
+    SENTRY_ENVIRONMENT_ENV_VAR,
+    SENTRY_TRACES_SAMPLE_RATE_ENV_VAR,
+)
+from app.error_tracking.setup import configure_error_tracking, traces_sample_rate
 from app.logs.constants import (
     DEFAULT_LOG_LEVEL,
     JSON_RENDERER,
@@ -21,6 +27,12 @@ from app.logs.setup import configure_logging
 load_dotenv()
 configure_logging(
     os.getenv(LOG_RENDERER_ENV_VAR, JSON_RENDERER), os.getenv(LOG_LEVEL_ENV_VAR, DEFAULT_LOG_LEVEL)
+)
+# Before the app is built, so the SDK's FastAPI integration wraps it.
+configure_error_tracking(
+    os.getenv(SENTRY_DSN_ENV_VAR),
+    environment=os.getenv(SENTRY_ENVIRONMENT_ENV_VAR),
+    sample_rate=traces_sample_rate(os.getenv(SENTRY_TRACES_SAMPLE_RATE_ENV_VAR)),
 )
 
 

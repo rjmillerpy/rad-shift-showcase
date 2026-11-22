@@ -75,6 +75,12 @@ COPY --chmod=755 docker-entrypoint.sh ./
 
 USER app
 
+# The commit this image was built from (publish.yml passes it), reported to
+# Sentry as the release so an error names the deploy that introduced it.
+# Last, so a new commit only changes this layer.
+ARG GIT_SHA=""
+ENV SENTRY_RELEASE=$GIT_SHA
+
 EXPOSE 5000
 
 ENTRYPOINT ["./docker-entrypoint.sh"]

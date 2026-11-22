@@ -28,6 +28,7 @@ dependencies = [
     "python-dotenv==1.2.4",
     "python-multipart==0.0.33",
     "PyYAML==6.0.3",
+    "sentry-sdk==2.74.0",
     "SQLAlchemy==2.1.1",
     "starlette==1.10.0",
     "structlog==26.1.0",
