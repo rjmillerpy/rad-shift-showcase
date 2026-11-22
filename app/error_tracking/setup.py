@@ -3,8 +3,9 @@
 Off unless SENTRY_DSN is set, so tests, CI and e2e never send anything.
 When on, the SDK's FastAPI integration reports unhandled exceptions and 5xx
 HTTPExceptions, and records logged at ERROR become events too. Each event
-is tagged with the request id (app/logs/middleware.py), so an issue in
-Sentry leads to the same request's lines in Loki. No personal data is sent:
+is tagged with the request id (app/logs/middleware.py) and, when the request
+is traced, its trace id, so an issue in Sentry leads to the same request's
+lines in Loki and its trace in Tempo. No personal data is sent:
 no IP addresses, cookies, tokens or request bodies, and no stack frame
 variables (they hold the raw headers).
 """
@@ -16,6 +17,8 @@ import structlog
 from sentry_sdk.integrations.logging import ignore_logger
 from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
+
+from app.tracing.context import current_trace_ids
 
 from .constants import (
     DEFAULT_ENVIRONMENT,
@@ -46,10 +49,13 @@ def traces_sample_rate(value: str | None) -> float:
     return rate
 
 
-def _tag_request_id(event: Event, hint: Hint) -> Event:
+def _tag_request_and_trace(event: Event, hint: Hint) -> Event:
+    tags = event.setdefault("tags", {})
     request_id = structlog.contextvars.get_contextvars().get(REQUEST_ID_TAG)
     if request_id is not None:
-        event.setdefault("tags", {})[REQUEST_ID_TAG] = request_id
+        tags[REQUEST_ID_TAG] = request_id
+    # The trace in Tempo, when the request is traced (app/tracing/).
+    tags.update(current_trace_ids())
     return event
 
 
@@ -81,7 +87,7 @@ def configure_error_tracking(
         # raw ASGI headers (Authorization tokens, cookies, client IPs) and
         # are sent unfiltered, so they stay off.
         include_local_variables=False,
-        before_send=_tag_request_id,
+        before_send=_tag_request_and_trace,
         transport=transport,
     )
     logger.info("Error tracking on", extra={"environment": environment or DEFAULT_ENVIRONMENT})

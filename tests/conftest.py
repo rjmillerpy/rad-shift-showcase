@@ -36,6 +36,8 @@ os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:3000")
 # Assigned, not defaulted: a real DSN in a developer's .env must never make
 # the test suite report to Sentry (load_dotenv leaves set variables alone).
 os.environ["SENTRY_DSN"] = ""
+# Likewise for tracing: never export spans from the test suite.
+os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""
 
 # ---------------------------------------------------------------------------
 # SQLite in-memory engine using StaticPool so every connection shares the

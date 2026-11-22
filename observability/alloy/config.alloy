@@ -40,7 +40,9 @@ loki.source.docker "radshift" {
 // request id becomes structured metadata instead: searchable on each line
 // ({service="backend"} | request_id="..."), but not a label, because a label
 // value per request would make a new stream for every request and swamp
-// Loki's index. Other services' lines pass through untouched.
+// Loki's index. The trace id (item 26) is structured metadata for the same
+// reason; Grafana turns it into a link to the trace in Tempo. Other
+// services' lines pass through untouched.
 loki.process "backend_json" {
   forward_to = [loki.write.local.receiver]
 
@@ -48,7 +50,7 @@ loki.process "backend_json" {
     selector = "{service=\"backend\"}"
 
     stage.json {
-      expressions = { level = "", request_id = "" }
+      expressions = { level = "", request_id = "", trace_id = "" }
     }
 
     stage.labels {
@@ -56,7 +58,7 @@ loki.process "backend_json" {
     }
 
     stage.structured_metadata {
-      values = { request_id = "" }
+      values = { request_id = "", trace_id = "" }
     }
   }
 }

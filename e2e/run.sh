@@ -27,6 +27,8 @@ fi
 if [ "${E2E_OBS:-0}" = "1" ]; then
   COMPOSE_FILES="$COMPOSE_FILES:compose.observability.yaml"
   PORTS+=(3001 8025 9090 9093)
+  # Item 26: the backend sends its traces to the overlay's Tempo.
+  export E2E_OTLP_ENDPOINT=http://tempo:4318
 fi
 compose_args=()
 IFS=: read -ra files <<< "$COMPOSE_FILES"

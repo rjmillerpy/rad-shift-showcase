@@ -12,6 +12,7 @@ import sentry_sdk
 import structlog
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from opentelemetry.sdk.trace import TracerProvider
 from sentry_sdk.envelope import Envelope
 from sentry_sdk.transport import Transport
 
@@ -109,6 +110,19 @@ class TestUnhandledExceptions:
         for value in ("203.0.113.9", "session=secret", "header.payload.signature"):
             assert value not in str(event)
         assert "user" not in event or "ip_address" not in event["user"]
+
+
+class TestTraceCorrelation:
+    def test_an_event_inside_a_trace_is_tagged_with_its_trace_id(self, sentry):
+        with TracerProvider().get_tracer("test").start_as_current_span("request") as span:
+            sentry_sdk.capture_message("inside a trace")
+        (event,) = _flush()
+        assert event["tags"]["trace_id"] == format(span.get_span_context().trace_id, "032x")
+
+    def test_outside_one_there_is_no_trace_tag(self, sentry):
+        sentry_sdk.capture_message("no trace")
+        (event,) = _flush()
+        assert "trace_id" not in event.get("tags", {})
 
 
 class TestWhatIsNotReported:

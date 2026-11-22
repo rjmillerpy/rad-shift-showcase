@@ -1,6 +1,7 @@
-"""FastAPI app factory: lifespan, CORS, request logs, metrics, JWT error handling, router registration."""
+"""FastAPI app factory: lifespan, CORS, request logs, metrics, tracing, JWT error handling, router registration."""
 
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -17,7 +18,7 @@ from .auth.views import auth_router
 from .avatar.views import avatar_router
 from .blog.views import blog_router
 from .common.config import Config
-from .common.db import create_tables
+from .common.db import create_tables, engine
 from .flags import service as flags
 from .follow.views import follow_router
 from .generators.scheduler import start_scheduler, stop_scheduler
@@ -31,10 +32,18 @@ from .metrics.views import metrics_router
 from .plugins import edition
 from .posts.views import posts_router
 from .profile.views import profile_router
+from .tracing import setup as tracing
+from .tracing.constants import OTLP_ENDPOINT_ENV_VAR, SERVICE_NAME_ENV_VAR
 from .trends.views import trends_router
 from .widgets.views import widget_router
 
 logger = logging.getLogger(__name__)
+
+# One per process (None when tracing is off): spans are batched, and the
+# lifespan flushes the last batch on shutdown.
+TRACER_PROVIDER = tracing.tracer_provider(
+    os.getenv(OTLP_ENDPOINT_ENV_VAR), os.getenv(SERVICE_NAME_ENV_VAR)
+)
 
 # Sent when an auth error carries no message of its own.
 DEFAULT_AUTH_ERROR_DETAIL = "Invalid or expired token"
@@ -69,6 +78,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         stop_scheduler()
         logger.info("Generator scheduler stopped")
         flags.shutdown()
+        if TRACER_PROVIDER is not None:
+            TRACER_PROVIDER.shutdown()
 
 
 def _authjwt_exception_handler(
@@ -127,6 +138,8 @@ def create_app() -> FastAPI:
         app.include_router(router, prefix=prefix)
     logger.info("Registered %d routers", len(routers))
 
+    # Last, after every middleware and router (see app/tracing/setup.py).
+    tracing.instrument(app, engine, TRACER_PROVIDER)
     return app
 
 

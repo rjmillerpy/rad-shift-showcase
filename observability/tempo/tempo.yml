@@ -1,0 +1,33 @@
+# Grafana Tempo 3, single binary (item 26; from the project's
+# example/docker-compose/single-binary for v3.1.1). Stores the backend's
+# traces, received over OTLP/HTTP, on a local volume. Grafana reads it
+# (datasource uid "tempo") and links each span to its lines in Loki.
+stream_over_http_enabled: true
+
+server:
+  http_listen_port: 3200
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        http:
+          endpoint: 0.0.0.0:4318
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+# Local practice data: a day is plenty and keeps the volume small.
+backend_worker:
+  compaction:
+    block_retention: 24h
+
+# No anonymous usage statistics sent to Grafana Labs.
+usage_report:
+  reporting_enabled: false

@@ -33,4 +33,6 @@ echo "== Loki config"
 run loki /usr/bin/loki -config.file=/check/loki/loki.yml -verify-config
 echo "== Alloy config"
 run alloy /bin/alloy validate /check/alloy/config.alloy
+echo "== Tempo config"
+run tempo /tempo -target=all -config.file=/check/tempo/tempo.yml -config.verify=true
 echo "All observability checks passed."

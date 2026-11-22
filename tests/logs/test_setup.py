@@ -6,6 +6,7 @@ import sys
 
 import pytest
 import structlog
+from opentelemetry.sdk.trace import TracerProvider
 
 from app.logs.constants import (
     CONSOLE_RENDERER,
@@ -42,6 +43,18 @@ class TestJsonLines:
         structlog.contextvars.bind_contextvars(request_id="abc123")
         logging.getLogger("radshift.test").info("inside a request")
         assert json_logs()[0]["request_id"] == "abc123"
+
+    def test_inside_a_traced_request_the_trace_ids_are_added(self, json_logs):
+        tracer = TracerProvider().get_tracer("test")
+        with tracer.start_as_current_span("request") as span:
+            logging.getLogger("radshift.test").info("traced")
+        (line,) = json_logs()
+        assert line["trace_id"] == format(span.get_span_context().trace_id, "032x")
+        assert len(line["span_id"]) == 16
+
+    def test_outside_a_trace_there_are_no_trace_fields(self, json_logs):
+        logging.getLogger("radshift.test").info("untraced")
+        assert "trace_id" not in json_logs()[0]
 
     def test_an_exception_is_one_string_field(self, json_logs):
         try:

@@ -198,8 +198,9 @@ class TestLokiPipeline:
         extracted = set(re.findall(r"(\w+)\s*=", block.group(1)))
         client.get("/async")
         (line,) = _request_lines(json_logs())
-        assert extracted == {"level", "request_id"}
-        assert extracted <= set(line)
+        # trace_id is on a line only when the request is traced (item 26).
+        assert extracted == {"level", "request_id", "trace_id"}
+        assert extracted - {"trace_id"} <= set(line)
 
 
 class TestOtherScopes:

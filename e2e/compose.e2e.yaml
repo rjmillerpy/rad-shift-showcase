@@ -15,5 +15,8 @@ services:
       S3_BUCKET_NAME: ""      # signup's avatar upload fails fast (it's best-effort by design)
       ANTHROPIC_API_KEY: ""   # no paid LLM calls; chronicle uses its rule-based fallback
       RESEND_API_KEY: ""      # verification emails are logged, never sent
+      SENTRY_DSN: ""          # the tests' deliberate failures never reach Sentry
+      # Traces go to the overlay's Tempo only when it's running (E2E_OBS=1).
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${E2E_OTLP_ENDPOINT:-}
     # Don't mount ~/.aws: no AWS credentials inside the test stack.
     volumes: !reset []

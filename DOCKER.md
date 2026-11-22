@@ -115,13 +115,20 @@ How the pieces connect:
 
 ```
 backend /metrics ──scrape every 15 s──► Prometheus ──alert rules──► Alertmanager ──SMTP──► Mailpit
-container stdout ──Docker socket──► Alloy ──JSON → level label, request_id metadata──► Loki
+container stdout ──Docker socket──► Alloy ──JSON → level label, request_id/trace_id metadata──► Loki
+backend spans ──OTLP/HTTP :4318──► Tempo  (when OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318)
                                      Grafana reads Prometheus, Loki and Alertmanager
 ```
 
 Try an alert: `docker compose stop backend`. BackendDown fires after a minute
 of failed scrapes and the email shows up in Mailpit about two minutes after
 the stop. `docker compose start backend` sends the "resolved" email.
+
+Traces (item 26): add `OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318` to
+your `.env` and restart the backend. Every request then shows up in
+Grafana → Explore → Tempo (search by service `rad-shift-backend`), and any
+backend log line with a trace id has a "View trace" link. Leave the variable
+empty when the overlay isn't running, or the backend logs failed exports.
 
 Find one request: copy the `X-Request-ID` header from the browser's network
 tab into the dashboard's "Request id" box, or query
@@ -140,7 +147,7 @@ Things worth knowing:
   and Alloy validate their own files, and `promtool test rules` runs the
   alert rule tests in `observability/prometheus/alerts.test.yml`.
 - **Test it** with `E2E_OBS=1 e2e/run.sh`: scrapes, route labels, rules
-  loaded, a request found in Loki by its id through Grafana, the dashboard, and a real
+  loaded, a request found in Loki by its id through Grafana, a trace found in Tempo with its log lines, the dashboard, and a real
   drill that stops the API and waits for the email.
 
 ## Things that commonly trip people up

@@ -1,4 +1,4 @@
-"""Metrics, logs, dashboard and alert email (compose.observability.yaml, roadmap items 15 and 24).
+"""Metrics, logs, dashboard and alert email (compose.observability.yaml, roadmap items 15, 24 and 26).
 
 Runs only with the overlay (`E2E_OBS=1 e2e/run.sh`). Each test follows one
 signal from the app to where a person would see it. The last one is a real
@@ -30,6 +30,8 @@ POLL_INTERVAL_SECONDS = 2
 SCRAPE_WAIT_SECONDS = 60
 # Alloy discovers containers, tails them and pushes in batches.
 LOG_WAIT_SECONDS = 60
+# The backend batches spans (up to 5 s) before Tempo can return the trace.
+TRACE_WAIT_SECONDS = 60
 # Scrape (15 s) + `for: 1m` + evaluation (15 s) + Alertmanager group_wait (30 s) + slack.
 DRILL_WAIT_SECONDS = 240
 
@@ -114,6 +116,49 @@ def test_a_request_can_be_found_in_loki_by_its_id(api: httpx.Client) -> None:
     (_, line), *_ = stream["values"]
     fields = json.loads(line)
     assert (fields["event"], fields["route"], fields["status"]) == ("http.request", "/posts/", 200)
+
+
+def _span_names(trace: object) -> list[str]:
+    """Every span name in a Tempo trace response, whatever its nesting."""
+    if isinstance(trace, dict):
+        own = [trace["name"]] if "spanId" in trace and "name" in trace else []
+        return own + [name for value in trace.values() for name in _span_names(value)]
+    if isinstance(trace, list):
+        return [name for value in trace for name in _span_names(value)]
+    return []
+
+
+def _tempo_spans(trace_id: str) -> list[str]:
+    response = httpx.get(
+        f"{GRAFANA}/api/datasources/proxy/uid/tempo/api/v2/traces/{trace_id}",
+        auth=GRAFANA_ADMIN,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+    )
+    if response.status_code == 404:  # not flushed or ingested yet
+        return []
+    response.raise_for_status()
+    return _span_names(response.json())
+
+
+def test_a_request_is_traced_and_its_logs_carry_the_trace_id(api: httpx.Client) -> None:
+    """Item 26: a caller's W3C traceparent is continued through the API; the
+    trace reaches Tempo with a SQL child span, and the request's log line in
+    Loki carries the same trace id (what Grafana's "View trace" link uses)."""
+    trace_id = uuid.uuid4().hex
+    traceparent = f"00-{trace_id}-{uuid.uuid4().hex[:16]}-01"
+    assert api.get("/posts/", headers={"traceparent": traceparent}).status_code == 200
+
+    names = _wait_for(lambda: _tempo_spans(trace_id), TRACE_WAIT_SECONDS, "the trace in Tempo")
+    assert "GET /posts/" in names
+    assert any(name.startswith(("SELECT", "connect")) for name in names), names
+
+    streams = _wait_for(
+        lambda: _loki_streams(f'{{service="backend"}} | trace_id="{trace_id}"'),
+        LOG_WAIT_SECONDS,
+        "the request's log line with its trace id",
+    )
+    (_, line), *_ = streams[0]["values"]
+    assert json.loads(line)["route"] == "/posts/"
 
 
 def test_dashboard_is_provisioned_for_anonymous_viewers() -> None:

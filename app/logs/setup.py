@@ -5,7 +5,8 @@ structlog formats every record, including those from plain
 logging calls need no change. Fields passed as `extra={...}` become JSON keys
 (the old text format dropped them), and whatever is bound to structlog's
 context, such as the request id from app/logs/middleware.py, is added to every
-line logged while that request is handled.
+line logged while that request is handled, as are the trace and span ids
+when the request is traced (app/tracing/).
 """
 
 import logging
@@ -13,6 +14,8 @@ import sys
 
 import structlog
 from structlog.types import Processor
+
+from app.tracing.context import current_trace_ids
 
 from .constants import (
     CONSOLE_RENDERER,
@@ -28,9 +31,18 @@ class LogConfigError(ValueError):
     """LOG_RENDERER or LOG_LEVEL has a value logging can't use."""
 
 
+def _add_trace_ids(
+    logger: logging.Logger, method: str, event_dict: structlog.typing.EventDict
+) -> structlog.typing.EventDict:
+    # Inside a traced request: the ids that find this line's trace in Tempo.
+    event_dict.update(current_trace_ids())
+    return event_dict
+
+
 # Run on every record, whichever API logged it.
 _SHARED_PROCESSORS: tuple[Processor, ...] = (
     structlog.contextvars.merge_contextvars,
+    _add_trace_ids,
     structlog.stdlib.add_logger_name,
     structlog.stdlib.add_log_level,
     structlog.processors.TimeStamper(fmt="iso", utc=True),
