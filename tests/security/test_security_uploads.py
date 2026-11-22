@@ -2,6 +2,7 @@
 
 import io
 
+from tests.helpers import real_image
 from tests.security._helpers import _setup
 
 
@@ -10,7 +11,7 @@ class TestFileUploadSafety:
 
     def test_upload_with_path_traversal_filename(self, client):
         h = _setup(client, "traversal_up")
-        pic = io.BytesIO(b"fake")
+        pic = real_image("PNG")
         res = client.post(
             "/profile/me/upload-profile-pic",
             files={"file": ("../../etc/passwd", pic, "image/jpeg")},
@@ -23,7 +24,7 @@ class TestFileUploadSafety:
 
     def test_upload_with_null_byte_filename(self, client):
         h = _setup(client, "null_byte_up")
-        pic = io.BytesIO(b"fake")
+        pic = real_image("PNG")
         res = client.post(
             "/profile/me/upload-profile-pic",
             files={"file": ("evil\x00.jpg", pic, "image/jpeg")},
@@ -143,7 +144,7 @@ class TestFileExtensionAllowlist:
 
     def test_jpg_upload_accepted(self, client):
         h = _setup(client, "jpg_accept")
-        jpg = io.BytesIO(b"\xff\xd8\xff\xe0")
+        jpg = real_image()
         res = client.post(
             "/posts/add",
             data={
@@ -186,7 +187,7 @@ class TestFileExtensionAllowlist:
 
     def test_profile_pic_accepts_png(self, client):
         h = _setup(client, "pic_png")
-        png = io.BytesIO(b"\x89PNG\r\n\x1a\n")
+        png = real_image("PNG")
         res = client.post(
             "/profile/me/upload-profile-pic",
             files={"file": ("avatar.png", png, "image/png")},
@@ -195,13 +196,53 @@ class TestFileExtensionAllowlist:
         assert res.status_code == 200
 
 
+class TestImageMetadata:
+    """Uploaded photos are public: GPS and camera details never reach storage."""
+
+    def test_gps_is_stripped_from_a_post_image(self, client):
+        from PIL import ExifTags, Image
+
+        exif = Image.Exif()
+        exif.get_ifd(ExifTags.IFD.GPSInfo).update(
+            {ExifTags.GPS.GPSLatitudeRef: "N", ExifTags.GPS.GPSLatitude: (41.0, 52.0, 55.0)}
+        )
+        photo = io.BytesIO()
+        Image.new("RGB", (8, 8)).save(photo, format="JPEG", exif=exif)
+        photo.seek(0)
+        import app.posts.uploads as uploads
+
+        # The suite's S3 mock (tests/conftest.py) records what it was handed.
+        upload = uploads.upload_fileobj_to_s3
+        upload.reset_mock()
+        res = client.post(
+            "/posts/add",
+            data={"text": "pic", "post_metadata": "{}", "is_draft": "false"},
+            files={"image": ("photo.jpg", photo, "image/jpeg")},
+            headers=_setup(client, "gps_strip"),
+        )
+        assert res.status_code == 200
+        (call,) = upload.call_args_list
+        body = call.args[0].getvalue()
+        assert not Image.open(io.BytesIO(body)).getexif()
+
+    def test_a_fake_image_is_not_stored(self, client):
+        res = client.post(
+            "/posts/add",
+            data={"text": "no pic", "post_metadata": "{}", "is_draft": "false"},
+            files={"image": ("photo.jpg", io.BytesIO(b"not really a jpeg"), "image/jpeg")},
+            headers=_setup(client, "fake_img"),
+        )
+        assert res.status_code == 200
+        assert res.json().get("image_url") is None
+
+
 class TestContentTypeSafety:
     """Verify that content-type is derived from extension, not client-supplied."""
 
     def test_spoofed_content_type_overridden(self, client):
         """Upload .jpg with content_type text/html — S3 should get image/jpeg."""
         h = _setup(client, "ct_spoof")
-        jpg = io.BytesIO(b"\xff\xd8\xff\xe0")
+        jpg = real_image()
         res = client.post(
             "/posts/add",
             data={

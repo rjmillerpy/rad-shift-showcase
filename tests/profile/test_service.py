@@ -8,6 +8,7 @@ import pytest
 
 from app.profile.schema import AlgoSettingsRequest
 from app.profile.service import apply_settings_update, get_merged_settings
+from tests.helpers import real_image
 
 
 class TestGetMergedSettings:
@@ -138,7 +139,7 @@ class TestUploadProfilePic:
         create_user("alice")
         headers = auth_header("alice")
 
-        fake_image = io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100)
+        fake_image = real_image("PNG")
         resp = client.post(
             "/profile/me/upload-profile-pic",
             files={"file": ("photo.jpg", fake_image, "image/jpeg")},

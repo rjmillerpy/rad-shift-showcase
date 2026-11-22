@@ -1,7 +1,8 @@
 """Tests for app/profile – get/update my profile, public profile, upload pic."""
 
-import io
 from unittest.mock import patch
+
+from tests.helpers import real_image
 
 
 class TestGetMyProfile:
@@ -64,7 +65,7 @@ class TestGetUserProfile:
 class TestUploadProfilePicture:
     def test_upload_success(self, client, create_user, auth_header):
         create_user(username="alice")
-        file_data = io.BytesIO(b"fakejpegdata")
+        file_data = real_image()
         resp = client.post(
             "/profile/me/upload-profile-pic",
             files={"file": ("avatar.jpg", file_data, "image/jpeg")},
@@ -75,7 +76,7 @@ class TestUploadProfilePicture:
 
     def test_upload_empty_filename(self, client, create_user, auth_header):
         create_user(username="alice")
-        file_data = io.BytesIO(b"fakejpegdata")
+        file_data = real_image()
         resp = client.post(
             "/profile/me/upload-profile-pic",
             files={"file": ("", file_data, "image/jpeg")},
@@ -85,7 +86,7 @@ class TestUploadProfilePicture:
         assert resp.status_code in (400, 422)
 
     def test_upload_no_auth(self, client):
-        file_data = io.BytesIO(b"fakejpegdata")
+        file_data = real_image()
         resp = client.post(
             "/profile/me/upload-profile-pic",
             files={"file": ("pic.jpg", file_data, "image/jpeg")},
@@ -94,7 +95,7 @@ class TestUploadProfilePicture:
 
     def test_upload_s3_failure(self, client, create_user, auth_header):
         create_user(username="alice")
-        file_data = io.BytesIO(b"fakejpegdata")
+        file_data = real_image()
         with patch(
             "app.profile.service.upload_fileobj_to_s3",
             side_effect=Exception("S3 down"),

@@ -1,8 +1,6 @@
 """API contract tests for /profile and /follow endpoints."""
 
-import io
-
-from tests.helpers import login, make_post, setup_user
+from tests.helpers import login, make_post, real_image, setup_user
 
 
 class TestProfileAPI:
@@ -47,7 +45,7 @@ class TestProfileAPI:
 
     def test_upload_pic_response_schema(self, client):
         headers = setup_user(client, "pic_api")
-        pic = io.BytesIO(b"fake pic")
+        pic = real_image()
         res = client.post(
             "/profile/me/upload-profile-pic",
             files={"file": ("avatar.jpg", pic, "image/jpeg")},
@@ -61,7 +59,7 @@ class TestProfileAPI:
 
     def test_upload_pic_empty_filename(self, client):
         headers = setup_user(client, "empty_pic")
-        pic = io.BytesIO(b"fake pic")
+        pic = real_image()
         res = client.post(
             "/profile/me/upload-profile-pic",
             files={"file": ("", pic, "image/jpeg")},
@@ -70,7 +68,7 @@ class TestProfileAPI:
         assert res.status_code in (400, 422)  # FastAPI may validate before handler
 
     def test_upload_pic_requires_auth(self, client):
-        pic = io.BytesIO(b"fake pic")
+        pic = real_image()
         res = client.post(
             "/profile/me/upload-profile-pic", files={"file": ("avatar.jpg", pic, "image/jpeg")}
         )
@@ -113,10 +111,9 @@ class TestProfileAPI:
         assert post["liked_by_me"] is False
 
     def test_upload_pic_bad_extension_rejected(self, client):
-        import io
 
         headers = setup_user(client, "bad_ext_pic")
-        pic = io.BytesIO(b"fake data")
+        pic = real_image()
         res = client.post(
             "/profile/me/upload-profile-pic",
             files={"file": ("hack.exe", pic, "application/octet-stream")},

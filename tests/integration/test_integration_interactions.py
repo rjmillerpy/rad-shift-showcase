@@ -3,9 +3,9 @@ Integration tests (part 2) — reply/quote chains, slop filtering,
 anonymous access, rapid toggles, metadata, and profile-pic flow.
 """
 
-import io
 import json
 
+from tests.helpers import real_image
 from tests.integration._helpers import _create_post, _login, _signup
 
 
@@ -270,7 +270,7 @@ class TestMetadataAndMedia:
         _signup(client, "uploader")
         headers = _login(client, "uploader")
 
-        image = io.BytesIO(b"fake image data")
+        image = real_image()
         res = client.post(
             "/posts/add",
             data={
@@ -311,7 +311,7 @@ class TestProfilePictureFlow:
         _signup(client, "pic_user")
         headers = _login(client, "pic_user")
 
-        pic = io.BytesIO(b"fake pic data")
+        pic = real_image()
         res = client.post(
             "/profile/me/upload-profile-pic",
             files={"file": ("avatar.jpg", pic, "image/jpeg")},

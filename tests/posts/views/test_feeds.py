@@ -2,7 +2,7 @@
 
 import json
 
-from tests.helpers import login, make_post, setup_user, signup
+from tests.helpers import login, make_post, real_image, setup_user, signup
 
 
 class TestPaginationAPI:
@@ -208,10 +208,9 @@ class TestMultiImageAPI:
     def test_add_post_accepts_images_param(self, client):
         """The /posts/add endpoint should accept 'images' as a list of files."""
         headers = setup_user(client, "multi_img_add")
-        import io
 
-        img1 = io.BytesIO(b"fake image 1")
-        img2 = io.BytesIO(b"fake image 2")
+        img1 = real_image()
+        img2 = real_image()
         res = client.post(
             "/posts/add",
             data={"text": "Multi image post", "post_metadata": "{}", "is_draft": "false"},
@@ -230,9 +229,8 @@ class TestMultiImageAPI:
     def test_single_image_still_works(self, client):
         """Backward compat: single 'image' param still sets image_url."""
         headers = setup_user(client, "single_img_compat")
-        import io
 
-        img = io.BytesIO(b"fake image")
+        img = real_image()
         res = client.post(
             "/posts/add",
             data={"text": "Single image post", "post_metadata": "{}", "is_draft": "false"},

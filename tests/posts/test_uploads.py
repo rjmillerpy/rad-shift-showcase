@@ -11,6 +11,7 @@ from app.posts.constants import (
     ALLOWED_DOCUMENT_EXTENSIONS,
     MAX_FILE_SIZE_BYTES,
 )
+from tests.helpers import real_image
 
 
 class TestSanitizeS3KeyPart:
@@ -36,6 +37,11 @@ class TestSanitizeS3KeyPart:
 def _fake_upload(filename: str, size: int) -> SimpleNamespace:
     """Stand-in for FastAPI's UploadFile — only exposes .filename and .file."""
     return SimpleNamespace(filename=filename, file=io.BytesIO(b"x" * size))
+
+
+def _image_upload(filename: str) -> SimpleNamespace:
+    """An UploadFile stand-in holding a real image (images are decoded)."""
+    return SimpleNamespace(filename=filename, file=real_image())
 
 
 class TestValidateUpload:
@@ -102,7 +108,7 @@ class TestGetMultimediaUrls:
 
     def test_single_image_populates_both_fields(self):
         result = uploads.get_multimedia_urls(
-            {"image_0": _fake_upload("photo.jpg", 100)},
+            {"image_0": _image_upload("photo.jpg")},
             "alice",
             1000,
         )
@@ -110,7 +116,7 @@ class TestGetMultimediaUrls:
         assert result["image_urls"] == [result["image_url"]]
 
     def test_multiple_images_return_list(self):
-        files = {f"image_{i}": _fake_upload(f"p{i}.jpg", 100) for i in range(3)}
+        files = {f"image_{i}": _image_upload(f"p{i}.jpg") for i in range(3)}
         result = uploads.get_multimedia_urls(files, "alice", 1000)
         assert len(result["image_urls"]) == 3
 

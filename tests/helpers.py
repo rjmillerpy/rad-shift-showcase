@@ -4,11 +4,13 @@ These do NOT replace the DB-level fixtures in conftest (create_user/auth_header)
 Use these when the test specifically verifies the signup/login HTTP contract.
 """
 
+import io
 from pathlib import Path
 
 from openfeature import api
 from openfeature.contrib.provider.flagd import FlagdProvider
 from openfeature.contrib.provider.flagd.config import ResolverType
+from PIL import Image
 
 
 def signup(client, username: str = "apiuser", password: str = "password123"):
@@ -47,3 +49,12 @@ def serve_flags_file(path: Path) -> None:
     api.set_provider_and_wait(
         FlagdProvider(resolver_type=ResolverType.FILE, offline_flag_source_path=str(path))
     )
+
+
+def real_image(fmt: str = "JPEG") -> io.BytesIO:
+    """A small, valid image file. Uploads are decoded to strip their metadata
+    (app/common/images.py), so placeholder bytes named .jpg are rejected."""
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8), "orange").save(buf, format=fmt)
+    buf.seek(0)
+    return buf

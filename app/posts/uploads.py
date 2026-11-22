@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import UploadFile
 
+from app.common.images import InvalidImageError, strip_metadata
 from app.common.s3 import upload_fileobj_to_s3
 
 from .constants import (
@@ -117,9 +118,19 @@ def get_multimedia_urls(request_files: dict, username: str, unix_time: int) -> d
             media_metadata = extract_media_metadata(file.file, extension)
             file.file.seek(0)
 
+        body = file.file
+        if extension in ALLOWED_IMAGE_EXTENSIONS:
+            try:
+                clean = strip_metadata(file.file, extension)
+            except InvalidImageError as err:
+                # Skipped like any other invalid upload (_validate_upload).
+                logger.warning("Rejected image upload %s: %s", file.filename, err)
+                continue
+            body, extension = clean.data, clean.extension
+
         content_type = EXTENSION_CONTENT_TYPES.get(extension, _DEFAULT_CONTENT_TYPE)
         s3_key = _build_s3_key(extension, safe_username, unix_time, counters)
-        file_url = upload_fileobj_to_s3(file.file, s3_key, content_type=content_type)
+        file_url = upload_fileobj_to_s3(body, s3_key, content_type=content_type)
         _assign_url_by_kind(extension, file_url, buckets)
 
     return {

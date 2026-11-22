@@ -2,7 +2,7 @@
 
 import io
 
-from tests.helpers import make_post, setup_user
+from tests.helpers import make_post, real_image, setup_user
 
 
 class TestPostsAddAPI:
@@ -75,7 +75,7 @@ class TestPostsAddAPI:
 
     def test_add_post_with_image_upload(self, client):
         headers = setup_user(client, "uploader_api")
-        image = io.BytesIO(b"fake image data")
+        image = real_image()
         res = client.post(
             "/posts/add",
             data={

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
+from app.common.images import InvalidImageError, strip_metadata
 from app.common.s3 import upload_fileobj_to_s3
 
 from .constants import (
@@ -88,13 +89,20 @@ def _upload_profile_picture(
         allowed = ", ".join(sorted(ALLOWED_PROFILE_PIC_EXTENSIONS))
         return False, f"File type not allowed. Accepted: {allowed}"
 
+    try:
+        # A profile picture is public: no GPS or camera details (app/common/images.py).
+        clean = strip_metadata(file.file, extension)
+    except InvalidImageError as err:
+        logger.warning("Rejected profile picture for user %s: %s", user.id, err)
+        return False, "File is not a readable image"
+
     safe_username = _S3_KEY_UNSAFE.sub("_", user.username)
     content_type = PROFILE_PIC_CONTENT_TYPES[extension]
     timestamp = int(datetime.now(UTC).timestamp())
     s3_key = f"{PROFILE_PIC_S3_KEY_PREFIX}/{safe_username}_{timestamp}.{extension}"
 
     try:
-        url = upload_fileobj_to_s3(file.file, s3_key, content_type=content_type)
+        url = upload_fileobj_to_s3(clean.data, s3_key, content_type=content_type)
     except Exception as exc:  # noqa: BLE001
         # S3 upload is best-effort — botocore itself can raise `BotoCoreError`
         # or `ClientError`, and the transport layer beneath it (urllib3, ssl)

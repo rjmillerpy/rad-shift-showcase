@@ -7,6 +7,8 @@ import io
 import json
 import time
 
+from tests.helpers import real_image
+
 
 def _signup(client, username, password="password123"):
     return client.post(
@@ -294,7 +296,7 @@ class TestMultimediaUploadThroughAPI:
 
     def test_image_upload_returns_url(self, client):
         h = _setup(client, "upload_img")
-        img = io.BytesIO(b"\xff\xd8\xff\xe0")
+        img = real_image()
         res = client.post(
             "/posts/add",
             data={

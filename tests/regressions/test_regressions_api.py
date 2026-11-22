@@ -6,6 +6,7 @@ Covers bugs #10–#17 and post-numbering regressions.
 
 import io
 
+from tests.helpers import real_image
 from tests.regressions._helpers import _setup, _signup
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -38,7 +39,7 @@ class TestRegression10FileExtensionAllowlist:
 
     def test_jpg_still_works(self, client):
         h = _setup(client, "ext_jpg")
-        jpg = io.BytesIO(b"\xff\xd8\xff\xe0")
+        jpg = real_image()
         res = client.post(
             "/posts/add",
             data={"text": "JPG test", "post_metadata": "{}", "is_draft": "false"},
@@ -58,7 +59,7 @@ class TestRegression11ContentTypeSpoofing:
         """Upload .jpg with text/html content_type — should still succeed
         because extension is valid, and the server-derived content_type is used."""
         h = _setup(client, "ct_spoof_reg")
-        jpg = io.BytesIO(b"\xff\xd8\xff\xe0")
+        jpg = real_image()
         res = client.post(
             "/posts/add",
             data={"text": "CT spoof", "post_metadata": "{}", "is_draft": "false"},
@@ -115,7 +116,7 @@ class TestRegression15ProfilePicValidation:
 
     def test_png_accepted_for_profile_pic(self, client):
         h = _setup(client, "pic_png_reg")
-        png = io.BytesIO(b"\x89PNG\r\n\x1a\n")
+        png = real_image("PNG")
         res = client.post(
             "/profile/me/upload-profile-pic",
             files={"file": ("avatar.png", png, "image/png")},
