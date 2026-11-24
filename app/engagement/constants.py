@@ -42,6 +42,9 @@ PRODUCER_CONFIG: dict[str, str | int | bool] = {
 }
 # Shutdown waits this long for queued events (Docker kills 10 s after stop).
 FLUSH_TIMEOUT_SECONDS = 5
+# A background thread serves delivery reports, waiting up to this long each time.
+DELIVERY_POLL_SECONDS = 1.0
+DELIVERY_POLLER_THREAD_NAME = "post-events-delivery"
 
 # Consumer (the aggregator). Offsets are committed by hand, after the score
 # is in the database: a crash in between replays the event, and the

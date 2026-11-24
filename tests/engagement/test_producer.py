@@ -1,6 +1,8 @@
 """Tests for app/engagement/producer.py: publishing never blocks or breaks a request."""
 
 import logging
+import threading
+import time
 
 import pytest
 from confluent_kafka import KafkaError, KafkaException
@@ -8,6 +10,7 @@ from prometheus_client import REGISTRY
 
 from app.engagement import producer
 from app.engagement.constants import (
+    DELIVERY_POLLER_THREAD_NAME,
     KAFKA_BOOTSTRAP_SERVERS_ENV_VAR,
     LOG_EVENT_DELIVERY_FAILED,
     LOG_EVENT_PUBLISH_DROPPED,
@@ -55,7 +58,7 @@ class TestPublish:
         before = published_count("post.saved", "delivered")
 
         producer.emit(PostEventType.SAVED, 1, 1)
-        producer.emit(PostEventType.SAVED, 2, 1)  # its poll() delivers the first
+        producer.emit(PostEventType.SAVED, 2, 1)
         published.poll(0)
 
         assert published_count("post.saved", "delivered") == before + 2
@@ -120,3 +123,27 @@ def test_a_delivery_report_it_cant_read_is_counted_as_unknown(published):
     published.poll(0)
 
     assert published_count("unknown", "delivered") == before + 1
+
+
+class TestDeliveryReportsWithoutTraffic:
+    """Found in a drill: an event that failed with nothing published after it
+    was never counted, because reports were only served by the next publish."""
+
+    def test_a_failure_is_counted_with_no_further_events(self, published):
+        published.delivery_error = KafkaError(KafkaError._MSG_TIMED_OUT)
+        before = published_count("post.shared", "failed")
+
+        producer.emit(PostEventType.SHARED, 1, None)
+
+        deadline = time.monotonic() + 5
+        while published_count("post.shared", "failed") == before:
+            assert time.monotonic() < deadline, "the background poller never reported it"
+            time.sleep(0.01)
+
+    def test_stop_ends_the_poller(self):
+        fake = RecordingProducer()
+        producer.start(fake)
+
+        producer.stop()
+
+        assert not any(t.name == DELIVERY_POLLER_THREAD_NAME for t in threading.enumerate())

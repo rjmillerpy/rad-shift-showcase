@@ -14,12 +14,15 @@ publish it.
 
 import logging
 import os
+import threading
 from typing import Protocol
 
 from confluent_kafka import KafkaError, KafkaException, Message, Producer
 from prometheus_client import REGISTRY, CollectorRegistry, Counter
 
 from .constants import (
+    DELIVERY_POLL_SECONDS,
+    DELIVERY_POLLER_THREAD_NAME,
     FLUSH_TIMEOUT_SECONDS,
     KAFKA_BOOTSTRAP_SERVERS_ENV_VAR,
     LOG_EVENT_DELIVERY_FAILED,
@@ -67,6 +70,8 @@ class PublishMetrics:
 PUBLISH_METRICS = PublishMetrics(REGISTRY)
 
 _producer: EventProducer | Producer | None = None
+_stop_polling: threading.Event | None = None
+_poller: threading.Thread | None = None
 
 
 def build_producer(bootstrap_servers: str) -> Producer:
@@ -90,14 +95,43 @@ def start(producer: EventProducer | Producer | None = None) -> bool:
             return False
         producer = build_producer(bootstrap_servers)
     _producer = producer
+    _start_poller(producer)
     return True
+
+
+def _start_poller(producer: EventProducer | Producer) -> None:
+    """Serve delivery reports on a thread of their own.
+
+    librdkafka only reports a delivery (or its failure) inside poll(). Polled
+    only when the next event is published, a failure with no traffic behind
+    it would never be logged or counted: found in a drill, with Kafka down
+    longer than message.timeout.ms and no further requests.
+    """
+    global _stop_polling, _poller
+    _stop_polling = threading.Event()
+    _poller = threading.Thread(
+        target=_serve_delivery_reports,
+        args=(producer, _stop_polling),
+        daemon=True,
+        name=DELIVERY_POLLER_THREAD_NAME,
+    )
+    _poller.start()
+
+
+def _serve_delivery_reports(producer: EventProducer | Producer, stop: threading.Event) -> None:
+    while not stop.is_set():
+        producer.poll(DELIVERY_POLL_SECONDS)
 
 
 def stop() -> None:
     """Send what's queued (briefly), then stop publishing."""
-    global _producer
+    global _producer, _stop_polling, _poller
     if _producer is None:
         return
+    if _stop_polling is not None and _poller is not None:
+        _stop_polling.set()
+        _poller.join(timeout=DELIVERY_POLL_SECONDS + 1)
+    _stop_polling = _poller = None
     undelivered = _producer.flush(FLUSH_TIMEOUT_SECONDS)
     if undelivered:
         logger.warning(LOG_EVENT_UNDELIVERED_AT_STOP, extra={"events": undelivered})
@@ -138,8 +172,6 @@ def publish(event: PostEvent) -> None:
         logger.warning(LOG_EVENT_PUBLISH_DROPPED, extra={"error": str(exc), "type": event.type})
         return
     PUBLISH_METRICS.count(event.type.value, OUTCOME_QUEUED)
-    # Serves delivery callbacks for earlier events; never waits.
-    _producer.poll(0)
 
 
 def emit(event_type: PostEventType, post_id: int, user_id: int | None) -> None:
