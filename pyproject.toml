@@ -11,6 +11,8 @@ dependencies = [
     "bcrypt==5.0.0",
     "beautifulsoup4==4.15.0",
     "boto3==1.43.126",
+    # Kafka client for post events (app/engagement/, roadmap item 29b). librdkafka inside the wheel.
+    "confluent-kafka==2.16.1",
     "botocore",  # unpinned on purpose: boto3 pins its matching release; uv.lock has the exact version
     "defusedxml==0.7.1",
     "fastapi==0.162.2",
@@ -92,7 +94,11 @@ testpaths = [
 ]
 markers = [
     "perf: timing-sensitive; CI runs these serially, after the parallel run",
+    "kafka: needs Docker (starts a real Kafka broker); run with `pytest -m kafka`",
 ]
+# The kafka tests start a broker in Docker, so they run on request (CI runs
+# them in a step of their own). A -m on the command line replaces this one.
+addopts = "-m 'not kafka'"
 filterwarnings = [
     "error",
     # Suppress third-party library warnings we cannot fix

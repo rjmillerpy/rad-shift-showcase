@@ -29,6 +29,7 @@ import app.amble.avatar.models  # noqa: E402,F401
 import app.amble.content.models  # noqa: E402,F401
 import app.auth.models  # noqa: E402,F401
 import app.blog.models  # noqa: E402,F401
+import app.engagement.models  # noqa: E402,F401
 import app.generators.models  # noqa: E402,F401
 import app.posts.models  # noqa: E402,F401
 import app.widgets.models  # noqa: E402,F401

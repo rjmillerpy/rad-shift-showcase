@@ -15,6 +15,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
+from app.engagement.producer import emit
+from app.engagement.schema import PostEventType
 
 from .models import PostModel
 
@@ -55,6 +57,8 @@ def create_post(
     )
     db.add(new_post)
     db.commit()
+    if not is_draft:
+        emit(PostEventType.CREATED, new_post.id, user.id)
 
 
 def get_post_by_post_id(post_id: int, db: Session) -> PostModel | None:
@@ -70,4 +74,5 @@ def publish_draft(post_id: int, user: User, db: Session) -> dict:
     post.is_draft = False
     post.unix_timestamp = int(time.time())
     db.commit()
+    emit(PostEventType.CREATED, post_id, user.id)
     return {"status": "published", "post_id": post_id}

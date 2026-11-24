@@ -20,3 +20,12 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${E2E_OTLP_ENDPOINT:-}
     # Don't mount ~/.aws: no AWS credentials inside the test stack.
     volumes: !reset []
+
+  # The same image as the backend: built without browsers, and kept away
+  # from real services the same way.
+  aggregator:
+    build:
+      args:
+        INSTALL_BROWSERS: "false"
+    environment:
+      SENTRY_DSN: ""

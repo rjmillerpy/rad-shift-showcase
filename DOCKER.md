@@ -42,7 +42,7 @@ Rebuild one service after code changes: `docker compose up --build backend`.
 | `docker-entrypoint.sh` | Runs `scripts/prepare_db.py`, then `exec`s uvicorn |
 | `scripts/prepare_db.py` | Empty DB: create schema from models + `alembic stamp head`. Existing DB: `alembic upgrade head` |
 | `.dockerignore` | Keeps `.env`, `.venv`, tests, caches and node_modules out of the build context (the Dockerfile also copies an explicit list, not `COPY . .`) |
-| `compose.yaml` | Wires db + backend + frontend, healthchecks, volume, ports |
+| `compose.yaml` | Wires db + backend + frontend + flagd + kafka + aggregator, healthchecks, volumes, ports |
 | `compose.tls.yaml` + `caddy/Caddyfile` | Opt-in HTTPS: Caddy in front as the only way in (see below) |
 | `compose.observability.yaml` + `observability/` | Opt-in metrics, logs, dashboard and alert email (see below) |
 | `../rad-shift-frontend/my-social-feed/Dockerfile` | Multi-stage Next.js build → standalone `server.js` |
@@ -149,6 +149,69 @@ Things worth knowing:
 - **Test it** with `E2E_OBS=1 e2e/run.sh`: scrapes, route labels, rules
   loaded, a request found in Loki by its id through Grafana, a trace found in Tempo with its log lines, the dashboard, and a real
   drill that stops the API and waits for the email.
+
+## Event streaming (Kafka)
+
+Roadmap item 29b. Two more services in `compose.yaml`, started with the rest:
+
+```
+backend ──produce──► kafka (post-events, 3 partitions, 7 days) ──consume──► aggregator ──► db (post_trending)
+                                                      │ unparseable
+                                                      ▼
+                                              post-events-dlq (14 days)
+```
+
+- **kafka**: Apache Kafka 4.4 (`apache/kafka`), one broker in KRaft mode
+  (its own controller, no ZooKeeper), 512 MB heap, data in the `kafkadata`
+  volume. Internal only. **Cost: $0.** Kafka is free software; what costs
+  hundreds a month is a managed service (Amazon MSK, Confluent Cloud after
+  its trial credits), and this project uses neither.
+- **aggregator**: the backend image running `python -m app.engagement.aggregator`.
+  Its own consumer group (`engagement-aggregator`) folds every like, laugh,
+  save, repost, share and new post into a score that halves every 6 hours,
+  served by `GET /posts/trending`. Metrics on :9102 (events processed,
+  consumer lag), scraped by the observability overlay.
+
+The API publishes after each commit and never waits for Kafka: with Kafka
+down, requests behave the same, events are dropped after 30 s and counted
+(`post_events_published_total{outcome="failed"}`), and trending goes stale.
+
+Why Kafka and not another SQS queue (item 28): a queue hands each message to
+one worker and deletes it. Kafka keeps an ordered log that any number of
+consumer groups read at their own pace, and that can be replayed: a new
+group (or a fixed consumer, after resetting its offsets) rebuilds the scores
+from the last 7 days. Events are keyed by post id, so one post's events stay
+in order on one partition. The other side of the trade: a broker to run,
+and with only one consumer, SQS would be simpler.
+
+```bash
+# What's in the topics, and how far behind the aggregator is:
+docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe
+docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
+  --describe --group engagement-aggregator
+# Watch events arrive:
+docker compose exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+  --topic post-events --property print.key=true
+# Rebuild every score from the retained events (stop the aggregator first):
+docker compose stop aggregator
+docker compose exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
+  --group engagement-aggregator --reset-offsets --to-earliest --topic post-events --execute
+docker compose start aggregator
+```
+
+A reset alone changes nothing: the aggregator remembers every event id it
+applied (`processed_post_events`, kept 8 days), so a replay is a no-op
+unless that table is emptied too. Delivery is at least once; the event-id
+check makes the effect exactly once.
+
+Tests: `uv run pytest tests/engagement` (fakes at the Kafka boundary),
+`uv run pytest -m kafka` (a real broker in Docker, the image above),
+`e2e/test_post_events.py` (the whole stack), and alert rules
+`ConsumerLagHigh` / `AggregatorDown` in `observability/prometheus/alerts.yml`.
+
+In the cloud: keep Kafka local and use SQS + SNS there (item 28, nearly free
+at this scale), or run this same container as one small ECS task (~$10–20 a
+month while it runs). Never an MSK cluster for this project.
 
 ## Things that commonly trip people up
 

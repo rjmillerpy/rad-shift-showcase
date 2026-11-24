@@ -1,4 +1,4 @@
-"""Feed endpoints: `/`, `/algo`, `/media`, `/following`, `/tags`."""
+"""Feed endpoints: `/`, `/algo`, `/trending`, `/media`, `/following`, `/tags`."""
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -12,6 +12,7 @@ from ..feeds import (
     get_all_posts_formatted,
     get_followed_posts_formatted,
     get_media_posts_formatted,
+    get_trending_posts_formatted,
 )
 from ..schema import PostPageResponse, TagsResponse
 from ..search import get_feed_tags
@@ -46,6 +47,23 @@ def get_algo_posts(
     db: Session = Depends(get_db),
 ) -> PostPageResponse:
     posts, has_more = get_algo_posts_formatted(
+        db=db,
+        current_user=current_user,
+        offset=offset,
+        limit=limit,
+    )
+    return PostPageResponse(posts=posts, has_more=has_more)
+
+
+@router.get("/trending")
+def get_trending_posts(
+    offset: int = 0,
+    limit: int = DEFAULT_PAGE_LIMIT,
+    current_user: User | None = Depends(optional_user),
+    db: Session = Depends(get_db),
+) -> PostPageResponse:
+    """Most engagement in the last hours (scores fed by Kafka; empty without it)."""
+    posts, has_more = get_trending_posts_formatted(
         db=db,
         current_user=current_user,
         offset=offset,

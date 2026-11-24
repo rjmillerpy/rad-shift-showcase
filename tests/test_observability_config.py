@@ -13,8 +13,10 @@ from pathlib import Path
 
 import pytest
 import yaml
+from prometheus_client import CollectorRegistry, generate_latest
 from prometheus_client.parser import text_string_to_metric_families
 
+from app.engagement.aggregator import AggregatorMetrics, Outcome
 from app.metrics.service import METRICS_PATH
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -55,15 +57,28 @@ def _promql_queries() -> list[str]:
 def _exported_series(client) -> set[str]:
     client.get("/health/live")  # so the labelled metrics have samples
     body = client.get(METRICS_PATH).text
+    return _series_in(body)
+
+
+def _series_in(body: str) -> set[str]:
     return {
         sample.name for family in text_string_to_metric_families(body) for sample in family.samples
     }
 
 
+def _aggregator_series() -> set[str]:
+    """What the engagement aggregator's :9102 exports (its own process, item 29b)."""
+    registry = CollectorRegistry()
+    metrics = AggregatorMetrics(registry)
+    metrics.processed(Outcome.APPLIED)  # so the labelled metrics have samples
+    metrics.lag("post-events", 0, 0)
+    return _series_in(generate_latest(registry).decode())
+
+
 class TestQueriesUseRealMetrics:
     def test_every_metric_queried_is_exported(self, client):
         queried = {name for query in _promql_queries() for name in _METRIC_IN_PROMQL.findall(query)}
-        unknown = queried - _exported_series(client) - SCRAPE_SERIES
+        unknown = queried - _exported_series(client) - _aggregator_series() - SCRAPE_SERIES
         assert not unknown, f"queried but not exported by the app: {sorted(unknown)}"
 
     def test_the_scanner_finds_metrics(self):

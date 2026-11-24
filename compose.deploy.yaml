@@ -18,6 +18,13 @@ services:
     env_file: !override
       - ${RADSHIFT_ENV_FILE:?set by scripts/deploy.py}
 
+  # Runs the API's image (scripts/deploy.py checks it matches).
+  aggregator:
+    image: ${BACKEND_IMAGE:?set by scripts/deploy.py}
+    build: !reset null
+    env_file: !override
+      - ${RADSHIFT_ENV_FILE:?set by scripts/deploy.py}
+
   frontend:
     image: ${FRONTEND_IMAGE:?set by scripts/deploy.py}
     # No build context needed (it's the other repository's checkout).

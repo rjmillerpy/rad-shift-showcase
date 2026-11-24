@@ -38,6 +38,11 @@ os.environ.setdefault("ALLOWED_ORIGINS", "http://localhost:3000")
 os.environ["SENTRY_DSN"] = ""
 # Likewise for tracing: never export spans from the test suite.
 os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""
+# And for queues: a developer's .env may point at the real SQS results queue
+# or a running Kafka, and every TestClient would start consuming or
+# publishing (tests that need them start them with their own fakes).
+os.environ["MEDIA_RESULTS_QUEUE_URL"] = ""
+os.environ["KAFKA_BOOTSTRAP_SERVERS"] = ""
 
 # ---------------------------------------------------------------------------
 # SQLite in-memory engine using StaticPool so every connection shares the
@@ -135,6 +140,7 @@ import app.admin.models  # noqa: E402,F401
 # Imported for their side effect: registering tables on Base.metadata so the
 # per-test create_all() builds them.
 import app.blog.models  # noqa: E402,F401
+import app.engagement.models  # noqa: E402,F401
 import app.widgets.models  # noqa: E402,F401
 from app.auth.models import User  # noqa: E402
 from app.common.db import Base, get_db  # noqa: E402
@@ -315,3 +321,15 @@ def create_post(db_session):
         return post
 
     return _make
+
+
+@pytest.fixture()
+def published():
+    """Post events (app/engagement/) published to a recording fake, not Kafka."""
+    from app.engagement import producer
+    from tests.engagement.fakes import RecordingProducer
+
+    fake = RecordingProducer()
+    producer.start(fake)
+    yield fake
+    producer.stop()

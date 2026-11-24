@@ -21,6 +21,12 @@ scrape_configs:
     static_configs:
       - targets: ["backend:5000"]
 
+  # The engagement aggregator (app/engagement/, item 29b): events processed
+  # and consumer lag.
+  - job_name: aggregator
+    static_configs:
+      - targets: ["aggregator:9102"]
+
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]

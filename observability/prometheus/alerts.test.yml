@@ -97,3 +97,54 @@ tests:
             exp_annotations:
               summary: "Prometheus can't scrape the API at backend:5000"
               description: "The backend container is stopped, restarting or not answering /metrics."
+
+  - name: lag that stays above 100 for 10 minutes fires ConsumerLagHigh
+    interval: 1m
+    input_series:
+      # Two partitions, 80 events behind each and not moving: a stuck consumer.
+      - series: 'kafka_consumer_lag{job="aggregator", topic="post-events", partition="0"}'
+        values: "80x20"
+      - series: 'kafka_consumer_lag{job="aggregator", topic="post-events", partition="1"}'
+        values: "80x20"
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: ConsumerLagHigh
+        exp_alerts: []
+      - eval_time: 12m
+        alertname: ConsumerLagHigh
+        exp_alerts:
+          - exp_labels:
+              severity: page
+            exp_annotations:
+              summary: "The engagement aggregator is 160 events behind"
+              description: "Trending scores are stale. Check the aggregator's logs for engagement.event.db_failed."
+
+  - name: a burst that clears within minutes stays quiet
+    interval: 1m
+    input_series:
+      - series: 'kafka_consumer_lag{job="aggregator", topic="post-events", partition="0"}'
+        values: "500 300 100 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ConsumerLagHigh
+        exp_alerts: []
+
+  - name: failed scrapes fire AggregatorDown after two minutes
+    interval: 1m
+    input_series:
+      - series: 'up{job="aggregator", instance="aggregator:9102"}'
+        values: "1 0 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: AggregatorDown
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: AggregatorDown
+        exp_alerts:
+          - exp_labels:
+              severity: page
+              job: aggregator
+              instance: aggregator:9102
+            exp_annotations:
+              summary: "Prometheus can't scrape the engagement aggregator"
+              description: "Events wait in Kafka (kept 7 days) until it's back; trending scores are stale meanwhile."

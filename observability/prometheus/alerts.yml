@@ -33,3 +33,25 @@ groups:
         annotations:
           summary: "Prometheus can't scrape the API at {{ $labels.instance }}"
           description: "The backend container is stopped, restarting or not answering /metrics."
+
+      # Kafka (item 29b). Lag is how many events the aggregator hasn't
+      # committed yet: the health metric for any consumer. A burst clears in
+      # seconds; lag that stays high means the consumer is stuck (a database
+      # error it keeps retrying) or too slow for the traffic.
+      - alert: ConsumerLagHigh
+        expr: sum(kafka_consumer_lag{job="aggregator"}) > 100
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "The engagement aggregator is {{ $value }} events behind"
+          description: "Trending scores are stale. Check the aggregator's logs for engagement.event.db_failed."
+
+      - alert: AggregatorDown
+        expr: up{job="aggregator"} == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Prometheus can't scrape the engagement aggregator"
+          description: "Events wait in Kafka (kept 7 days) until it's back; trending scores are stale meanwhile."

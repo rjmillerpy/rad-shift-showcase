@@ -7,10 +7,24 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
+from app.engagement.producer import emit
+from app.engagement.schema import PostEventType
 
 from .models import PostLaugh, PostLike, PostModel, PostSave, PostShare, Repost, Slop
 
 logger = logging.getLogger(__name__)
+
+# The event each toggle's outcome publishes (app/engagement/, item 29b).
+_EVENTS = {
+    "liked": PostEventType.LIKED,
+    "unliked": PostEventType.UNLIKED,
+    "laughed": PostEventType.LAUGHED,
+    "unlaughed": PostEventType.UNLAUGHED,
+    "re-posted": PostEventType.REPOSTED,
+    "un-re-posted": PostEventType.UNREPOSTED,
+    "saved": PostEventType.SAVED,
+    "unsaved": PostEventType.UNSAVED,
+}
 
 
 def _get_post_or_404(post_id: int, db: Session) -> PostModel:
@@ -43,6 +57,7 @@ def toggle_like(post_id: int, user: User, db: Session) -> dict:
         action = "liked"
 
     db.commit()
+    emit(_EVENTS[action], post_id, user.id)
     db.refresh(post)
     return {"likes": post.likes, "action": action}
 
@@ -70,6 +85,7 @@ def toggle_laugh(post_id: int, user: User, db: Session) -> dict:
         action = "laughed"
 
     db.commit()
+    emit(_EVENTS[action], post_id, user.id)
     db.refresh(post)
     return {"laughs": post.laughs, "action": action}
 
@@ -97,6 +113,7 @@ def toggle_repost(post_id: int, user: User, db: Session) -> dict:
         action = "re-posted"
 
     db.commit()
+    emit(_EVENTS[action], post_id, user.id)
     db.refresh(post)
     return {"reposts": post.reposts, "action": action}
 
@@ -123,6 +140,7 @@ def toggle_save(post_id: int, user: User, db: Session) -> dict:
         action = "saved"
 
     db.commit()
+    emit(_EVENTS[action], post_id, user.id)
     db.refresh(post)
     return {"saves": post.saves, "action": action}
 
@@ -140,6 +158,7 @@ def share_post(post_id: int, user: User | None, db: Session) -> dict:
             new_share = PostShare(user_id=user.id, post_id=post_id, timestamp=int(time.time()))
             db.add(new_share)
         db.commit()
+        emit(PostEventType.SHARED, post_id, user.id if user is not None else None)
         db.refresh(post)
     except IntegrityError as exc:
         db.rollback()

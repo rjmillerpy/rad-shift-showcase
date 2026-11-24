@@ -75,7 +75,12 @@ jobs:
       # -n auto: one worker per CPU (2 on GitHub's private-repo runners). Each
       # worker is its own process with its own in-memory database.
       - name: Pytest (parallel)
-        run: pytest -q -n auto -m "not perf" --cov --cov-report=
+        run: pytest -q -n auto -m "not perf and not kafka" --cov --cov-report=
+
+      # The post-event path against a real Kafka broker (tests/kafka/, item
+      # 29b): the image compose.yaml runs, started in Docker by the tests.
+      - name: Pytest (Kafka)
+        run: pytest -q -m kafka --cov --cov-append --cov-report=
 
       # Timing assertions run alone, so parallel workers can't skew them.
       # --cov-append adds to the parallel run's data; the 95% floor

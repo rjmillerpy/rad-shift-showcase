@@ -4,8 +4,11 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+from app.engagement.schema import PostEvent, PostEventType
+from app.engagement.trending import apply_event
 from app.posts import feeds
 from app.posts.feeds import AlgoWeights
+from app.posts.models import Slop
 
 
 class TestAlgoWeights:
@@ -180,3 +183,62 @@ class TestGetSinglePostFormatted:
         result = feeds.get_single_post_formatted(post.id, db_session)
         assert result is not None
         assert result.id == post.id
+
+
+class TestGetTrendingPostsFormatted:
+    """Ranked by the Kafka-fed scores (app/engagement/trending.py)."""
+
+    NOW = 2_000_000.0
+
+    def score(self, db_session, post, weight_events):
+        for i, event_type in enumerate(weight_events):
+            apply_event(
+                db_session,
+                PostEvent(
+                    event_id=f"{post.id}-{i}",
+                    type=event_type,
+                    post_id=post.id,
+                    occurred_at=self.NOW,
+                ),
+            )
+
+    def test_empty_without_scores(self, db_session):
+        assert feeds.get_trending_posts_formatted(db_session, now=self.NOW) == ([], False)
+
+    def test_highest_score_first(self, create_user, create_post, db_session):
+        user = create_user(username="trend")
+        quiet, loud = create_post(user=user, text="quiet"), create_post(user=user, text="loud")
+        self.score(db_session, quiet, [PostEventType.LIKED])
+        self.score(db_session, loud, [PostEventType.SHARED, PostEventType.SAVED])
+
+        posts, has_more = feeds.get_trending_posts_formatted(db_session, now=self.NOW)
+
+        assert [p.id for p in posts] == [loud.id, quiet.id]
+        assert has_more is False
+
+    def test_drafts_replies_and_my_slop_are_left_out(self, create_user, create_post, db_session):
+        user = create_user(username="trend_filter")
+        shown = create_post(user=user, text="shown")
+        draft = create_post(user=user, text="draft", is_draft=True)
+        reply = create_post(user=user, text="reply", is_reply=True, parent_post_id=shown.id)
+        slopped = create_post(user=user, text="slopped")
+        db_session.add(Slop(user_id=user.id, post_id=slopped.id, reason="x", unix_timestamp=1))
+        db_session.commit()
+        for post in (shown, draft, reply, slopped):
+            self.score(db_session, post, [PostEventType.LIKED])
+
+        posts, _ = feeds.get_trending_posts_formatted(db_session, user, now=self.NOW)
+
+        assert [p.id for p in posts] == [shown.id]
+
+    def test_pages(self, create_user, create_post, db_session):
+        user = create_user(username="trend_pages")
+        made = [create_post(user=user, text=f"t{i}") for i in range(3)]
+        for count, post in enumerate(made, start=1):
+            self.score(db_session, post, [PostEventType.LIKED] * count)
+
+        first, more = feeds.get_trending_posts_formatted(db_session, limit=2, now=self.NOW)
+        rest, done = feeds.get_trending_posts_formatted(db_session, offset=2, limit=2, now=self.NOW)
+
+        assert [p.id for p in first + rest] == [made[2].id, made[1].id, made[0].id]
+        assert (more, done) == (True, False)

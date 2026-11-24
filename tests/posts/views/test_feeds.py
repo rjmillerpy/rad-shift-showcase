@@ -2,6 +2,7 @@
 
 import json
 
+from app.engagement.trending import apply_event
 from tests.helpers import login, make_post, real_image, setup_user, signup
 
 
@@ -239,3 +240,46 @@ class TestMultiImageAPI:
         )
         assert res.status_code == 200
         assert res.json()["image_url"] is not None
+
+
+class TestTrendingFeedAPI:
+    """GET /posts/trending, fed through the whole event path: the API publishes,
+    the aggregator's apply_event folds the events in, the feed ranks them."""
+
+    def aggregate(self, published, db_session):
+        for event in published.events():
+            apply_event(db_session, event)
+
+    def test_empty_until_something_happens(self, client):
+        resp = client.get("/posts/trending")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"posts": [], "has_more": False}
+
+    def test_engagement_through_the_api_ranks_posts(self, client, published, db_session):
+        headers = setup_user(client, "trendsetter")
+        make_post(client, headers, text="ignored")
+        make_post(client, headers, text="popular")
+        popular = client.get("/posts/").json()["posts"][0]
+        assert popular["text"] == "popular"
+        client.post(f"/posts/like/{popular['id']}", headers=headers)
+        client.post(f"/posts/repost/{popular['id']}", headers=headers)
+
+        self.aggregate(published, db_session)
+        posts = client.get("/posts/trending").json()["posts"]
+
+        assert [p["text"] for p in posts] == ["popular", "ignored"]
+
+    def test_an_unlike_takes_the_like_back(self, client, published, db_session):
+        headers = setup_user(client, "fickle")
+        make_post(client, headers, text="first")
+        make_post(client, headers, text="second")
+        first = next(p for p in client.get("/posts/").json()["posts"] if p["text"] == "first")
+        client.post(f"/posts/like/{first['id']}", headers=headers)
+        client.post(f"/posts/like/{first['id']}", headers=headers)
+
+        self.aggregate(published, db_session)
+        posts = client.get("/posts/trending").json()["posts"]
+
+        # Both just created (equal scores); the newer id wins the tie.
+        assert [p["text"] for p in posts] == ["second", "first"]

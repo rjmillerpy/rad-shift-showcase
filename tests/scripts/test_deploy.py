@@ -30,6 +30,19 @@ def images(tags: Mapping[str, str]) -> dict[str, str]:
     return {c: image(c, t) for c, t in tags.items()}
 
 
+# Which variable names each service's image, as in compose.deploy.yaml.
+COMPOSE_IMAGE_VARIABLES = {
+    "backend": "BACKEND_IMAGE",
+    "aggregator": "BACKEND_IMAGE",
+    "frontend": "FRONTEND_IMAGE",
+}
+
+
+def stack(tags: Mapping[str, str]) -> dict[str, str]:
+    """Every running service's image: the components', and the aggregator on the backend's."""
+    return images(tags) | {"aggregator": image("backend", tags["backend"])}
+
+
 class FakeHost:
     """ECR (tags per repository, oldest first) and the compose stack."""
 
@@ -38,7 +51,7 @@ class FakeHost:
             "radshift-backend": [OLD["backend"], NEW["backend"]],
             "radshift-frontend": [OLD["frontend"], NEW["frontend"]],
         }
-        self.running: dict[str, str] = images(OLD)
+        self.running: dict[str, str] = stack(OLD)
         self.unhealthy: set[str] = (
             set()
         )  # images whose health check never passes (compose --wait fails)
@@ -59,7 +72,7 @@ class FakeHost:
         if "pull" in args:
             return self._pull(env)
         if "up" in args:
-            return self._up(env)
+            return self._up(args, env)
         raise AssertionError(f"unexpected command {args}")
 
     def _describe(self, args: list[str]) -> str:
@@ -80,8 +93,12 @@ class FakeHost:
                 raise deploy.DeployError("manifest unknown")
         return ""
 
-    def _up(self, env: Mapping[str, str]) -> str:
-        self.running = {"backend": env["BACKEND_IMAGE"], "frontend": env["FRONTEND_IMAGE"]}
+    def _up(self, args: list[str], env: Mapping[str, str]) -> str:
+        self.running = {
+            service: env[variable]
+            for service, variable in COMPOSE_IMAGE_VARIABLES.items()
+            if service in args
+        }
         if self.unhealthy & set(self.running.values()):
             raise deploy.DeployError("dependency failed to start: container is unhealthy")
         return ""
@@ -128,10 +145,7 @@ class TestDeploys:
 
         assert run_deploy(host, env_file) == 0
 
-        assert host.running == {
-            "backend": image("backend", NEW["backend"]),
-            "frontend": image("frontend", OLD["frontend"]),
-        }
+        assert host.running == stack({"backend": NEW["backend"], "frontend": OLD["frontend"]})
 
     def test_given_tags_are_pulled_then_started_with_both_compose_files(self, host, env_file):
         assert run_deploy(host, env_file, *tag_args(OLD | {"backend": NEW["backend"]})) == 0
@@ -169,6 +183,20 @@ class TestDeploys:
         assert not host.commands("up")
         assert "nothing to do" in capsys.readouterr().out
 
+    def test_the_aggregator_starts_on_the_backend_image(self, host, env_file):
+        assert run_deploy(host, env_file, *tag_args(NEW)) == 0
+
+        ((up_args, _),) = host.commands("up")
+        assert "aggregator" in up_args
+        assert host.running["aggregator"] == image("backend", NEW["backend"])
+
+    def test_same_images_but_no_aggregator_yet_still_deploys(self, host, env_file):
+        del host.running["aggregator"]  # the first deploy after it was added
+
+        assert run_deploy(host, env_file, *tag_args(OLD)) == 0
+
+        assert host.running == stack(OLD)
+
     def test_writes_the_run_summary(self, host, env_file, summary):
         run_deploy(host, env_file, *tag_args(NEW))
 
@@ -200,7 +228,7 @@ class TestRefusesBeforeTouchingTheStack:
         assert run_deploy(host, env_file, "--frontend-tag=" + "e" * 40) == 1
 
         assert "is not in ECR" in capsys.readouterr().err
-        assert host.running == images(OLD)
+        assert host.running == stack(OLD)
 
     def test_an_empty_repository(self, host, env_file, capsys):
         host.ecr["radshift-backend"] = []
@@ -233,19 +261,42 @@ class TestRollsBack:
 
         assert run_deploy(host, env_file, *tag_args(NEW)) == 1
 
-        assert host.running == images(OLD)
+        assert host.running == stack(OLD)
         out = capsys.readouterr().out
         assert "container is unhealthy" in out and "rolled back to the previous images" in out
         assert len(host.commands("pull")) == 1, (
             "the previous images are already local; rollback doesn't pull"
         )
 
+    def test_an_aggregator_left_on_the_old_image_fails_the_deploy(self, host, env_file, capsys):
+        original_up = host._up
+
+        def up_without_the_aggregator(args, env):
+            original_up([a for a in args if a != "aggregator"], env)
+            host.running["aggregator"] = image("backend", OLD["backend"])
+            return ""
+
+        host._up = up_without_the_aggregator
+
+        assert run_deploy(host, env_file, *tag_args(NEW)) == 1
+
+        assert "aggregator runs" in capsys.readouterr().out
+
+    def test_rolls_back_a_stack_that_had_no_aggregator(self, host, env_file, capsys):
+        del host.running["aggregator"]
+        host.unhealthy.add(image("backend", NEW["backend"]))
+
+        assert run_deploy(host, env_file, *tag_args(NEW)) == 1
+
+        assert host.running == stack(OLD)
+        assert "rolled back to the previous images" in capsys.readouterr().out
+
     def test_healthy_containers_that_dont_answer_on_the_host(self, host, env_file, capsys):
         host.not_serving.add(image("frontend", NEW["frontend"]))
 
         assert run_deploy(host, env_file, *tag_args(NEW)) == 1
 
-        assert host.running == images(OLD)
+        assert host.running == stack(OLD)
         assert "not answering 200" in capsys.readouterr().out
 
     def test_a_failed_pull_leaves_the_stack_running(self, host, env_file):
@@ -253,7 +304,7 @@ class TestRollsBack:
 
         assert run_deploy(host, env_file, *tag_args(NEW)) == 1
 
-        assert host.running == images(OLD)
+        assert host.running == stack(OLD)
         assert not [args for args, _ in host.commands("up") if NEW["backend"] in " ".join(args)]
 
     def test_no_rollback_when_the_stack_was_not_running(self, host, env_file, capsys):

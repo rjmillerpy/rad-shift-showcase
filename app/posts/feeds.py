@@ -1,5 +1,6 @@
 """Feed queries — every "list N posts filtered / ordered by X" path."""
 
+import time
 from dataclasses import dataclass
 
 from sqlalchemy import func
@@ -7,6 +8,7 @@ from sqlalchemy.orm import Query, Session, joinedload
 
 from app.auth.models import User
 from app.common.utils import paginate
+from app.engagement.trending import ranked_post_ids
 
 from .constants import MEDIA_TYPE_FILTERS
 from .models import PostModel, PostSave, Repost, Slop
@@ -195,6 +197,32 @@ def get_algo_posts_formatted(
     filtered = _exclude_slopped_query(_exclude_drafts_query(base_query), current_user, db)
     posts, has_more = paginate(filtered, offset, limit)
     return build_post_responses(posts, current_user, db), has_more
+
+
+def get_trending_posts_formatted(
+    db: Session,
+    current_user: User | None = None,
+    offset: int = 0,
+    limit: int = 20,
+    now: float | None = None,
+) -> tuple[list[PostResponse], bool]:
+    """Posts with the most engagement lately, from the Kafka-fed scores (app/engagement/).
+
+    Ranked in Python (the scores decay with time); drafts, replies and the
+    viewer's slop-marked posts are filtered out before paging.
+    """
+    ranked = ranked_post_ids(db, time.time() if now is None else now)
+    if not ranked:
+        return [], False
+    visible = _exclude_slopped_query(
+        _exclude_drafts_query(_base_feed_query(db).filter(PostModel.id.in_(ranked))),
+        current_user,
+        db,
+    ).all()
+    rank = {post_id: position for position, post_id in enumerate(ranked)}
+    ordered = sorted(visible, key=lambda post: rank[post.id])
+    page = ordered[offset : offset + limit]
+    return build_post_responses(page, current_user, db), len(ordered) > offset + limit
 
 
 def get_single_post_formatted(

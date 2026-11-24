@@ -39,6 +39,10 @@ PROJECT = "radshift"  # compose.yaml's `name:`: the stack you run locally
 COMPOSE_FILES = ("compose.yaml", "compose.deploy.yaml")
 COMPONENTS = ("backend", "frontend")
 IMAGE_VARIABLES = {"backend": "BACKEND_IMAGE", "frontend": "FRONTEND_IMAGE"}
+# Services that run a component's image without being published on their
+# own: the engagement aggregator (item 29b) runs the backend's.
+SIDECARS = {"aggregator": "backend"}
+SERVICES = (*COMPONENTS, *SIDECARS)
 ENV_FILE_VARIABLE = "RADSHIFT_ENV_FILE"
 # Published by compose.yaml on the host; checked after compose's own health checks.
 HEALTH_URLS = ("http://127.0.0.1:5000/health", "http://127.0.0.1:3000/api/health")
@@ -125,8 +129,8 @@ def compose(run: Runner, images: Images, env_file: str, *args: str) -> str:
 
 
 def running_images(run: Runner) -> Images:
-    """Image of each running app container; empty when the stack is down."""
-    output = run(["docker", "compose", "-p", PROJECT, "ps", "--format", "json", *COMPONENTS], {})
+    """Image of each running app container (sidecars too); empty when the stack is down."""
+    output = run(["docker", "compose", "-p", PROJECT, "ps", "--format", "json", *SERVICES], {})
     containers = [json.loads(line) for line in output.splitlines() if line.strip()]
     return {c["Service"]: c["Image"] for c in containers if c.get("State") == "running"}
 
@@ -138,7 +142,7 @@ def start(run: Runner, images: Images, env_file: str, *, pull: bool) -> None:
         run, images, env_file,
         "up", "--detach", "--no-build", "--pull", "missing",
         "--wait", "--wait-timeout", str(WAIT_SECONDS),
-        *COMPONENTS,
+        *SERVICES,
     )  # fmt: skip
 
 
@@ -147,17 +151,23 @@ def verify(run: Runner, probe: Probe, images: Images) -> list[str]:
     problems = [f"{url} is not answering 200" for url in HEALTH_URLS if not probe(url)]
     running = running_images(run)
     problems += [
-        f"{c} runs {running.get(c, 'nothing')}, expected {images[c]}"
-        for c in COMPONENTS
-        if running.get(c) != images[c]
+        f"{service} runs {running.get(service, 'nothing')}, expected {expected}"
+        for service, expected in expected_images(images).items()
+        if running.get(service) != expected
     ]
     return problems
 
 
+def expected_images(images: Images) -> Images:
+    """The image every service should run: its own, or its component's for a sidecar."""
+    return images | {sidecar: images[component] for sidecar, component in SIDECARS.items()}
+
+
 def roll_back(run: Runner, probe: Probe, previous: Images, env_file: str) -> str:
     """Start the previous images again; a one-line outcome for the report."""
-    if set(previous) != set(COMPONENTS):
+    if not set(COMPONENTS) <= set(previous):
         return "no rollback: the stack wasn't fully running before this deploy"
+    previous = {c: previous[c] for c in COMPONENTS}
     try:
         start(run, previous, env_file, pull=False)
     except DeployError as exc:
@@ -173,7 +183,7 @@ def roll_back(run: Runner, probe: Probe, previous: Images, env_file: str) -> str
 def deploy(run: Runner, probe: Probe, images: Images, env_file: str) -> tuple[bool, str]:
     """Health-gated deploy with automatic rollback. Returns (succeeded, report)."""
     previous = running_images(run)
-    if previous == images:
+    if previous == expected_images(images):
         return True, "already running these images; nothing to do"
     try:
         start(run, images, env_file, pull=True)

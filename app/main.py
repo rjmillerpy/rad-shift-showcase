@@ -19,6 +19,7 @@ from .avatar.views import avatar_router
 from .blog.views import blog_router
 from .common.config import Config
 from .common.db import create_tables, engine
+from .engagement import producer as post_events
 from .flags import service as flags
 from .follow.views import follow_router
 from .generators.scheduler import start_scheduler, stop_scheduler
@@ -75,9 +76,12 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Generator scheduler started")
     if media_results.start():
         logger.info("Polling the media results queue")
+    if post_events.start():
+        logger.info("Publishing post events to Kafka")
     try:
         yield
     finally:
+        post_events.stop()
         media_results.stop()
         stop_scheduler()
         logger.info("Generator scheduler stopped")

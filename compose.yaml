@@ -11,6 +11,14 @@
 
 name: radshift
 
+# The database settings both the API and the aggregator use.
+x-database-environment: &database-environment
+  DB_HOST: db            # the service name below; Compose provides DNS for it
+  DB_PORT: "5432"        # the container port, not the 5433 published to your host
+  DB_USER: radshift
+  DB_PASSWORD: ${RADSHIFT_DB_PASSWORD:-radshift-local}
+  DB_NAME: radshift
+
 services:
   db:
     image: postgres:16
@@ -39,15 +47,12 @@ services:
     # this stack's local Postgres.
     env_file: .env
     environment:
-      DB_HOST: db            # the service name above; Compose provides DNS for it
-      DB_PORT: "5432"        # the container port, not the 5433 published to your host
-      DB_USER: radshift
-      DB_PASSWORD: ${RADSHIFT_DB_PASSWORD:-radshift-local}
-      DB_NAME: radshift
+      <<: *database-environment
       ALLOWED_ORIGINS: http://localhost:3000
       APP_URL: http://localhost:3000
       WIDGET_SERVER_EXECUTION_ENABLED: "false"
       FLAGD_HOST: flagd     # feature flags, evaluated in-process from flagd's sync stream
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092  # post events (item 29b)
     volumes:
       # Reuse your local AWS credentials for S3 uploads (read-only).
       - ${HOME}/.aws:/home/app/.aws:ro
@@ -59,6 +64,10 @@ services:
       # Started first so flags are ready on the first request; the API never
       # waits on it (until it connects, every flag serves its safe fallback).
       flagd:
+        condition: service_started
+      # Started, never waited for: the API queues events until Kafka is up
+      # (30 s each, then counted as failed) and works the same without it.
+      kafka:
         condition: service_started
     # /health pings the database (SELECT 1), so "healthy" means the API can do
     # real work. urlopen raises on a 503, which makes the check fail. python
@@ -112,5 +121,67 @@ services:
     # No healthcheck: the image is distroless (no shell, wget or curl).
     # Probes are on :8014 (/healthz, /readyz) for anything on the network.
 
+  # Event streaming (roadmap item 29b): Apache Kafka, free and self-hosted
+  # (Amazon MSK would cost hundreds a month). One broker in KRaft mode: it is
+  # its own controller, no ZooKeeper. Internal only; nothing is published.
+  kafka:
+    image: apache/kafka:4.4.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      # A real cluster keeps 3 copies of everything; one broker can keep one.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Topics are created on purpose (app/engagement/topics.py), with their
+      # partitions and retention, never by a typo.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      # ~330 MB in use; the JVM's default would reserve a quarter of the host.
+      KAFKA_HEAP_OPTS: -Xmx512m -Xms512m
+      # Fixed, so the volume's data always matches (22 base64 chars).
+      CLUSTER_ID: cmFkc2hpZnQtbG9jYWwtMQ
+    volumes:
+      - kafkadata:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null"]
+      start_period: 60s
+      start_interval: 2s
+      interval: 15s
+      timeout: 10s
+      retries: 3
+
+  # Consumes post events into trending scores (app/engagement/aggregator.py).
+  # Same image as the API, its own process and consumer group.
+  aggregator:
+    build: .
+    # Not the image's entrypoint: the API's container runs the migrations.
+    entrypoint: ["python", "-m", "app.engagement.aggregator"]
+    env_file: .env
+    environment:
+      <<: *database-environment
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+      # Healthy means migrated: the tables it writes exist.
+      backend:
+        condition: service_healthy
+    # The metrics endpoint answers once the consumer is running.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9102/metrics')"]
+      start_period: 60s
+      start_interval: 2s
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
 volumes:
   pgdata:
+  kafkadata:

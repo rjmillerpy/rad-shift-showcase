@@ -7,6 +7,8 @@ import io
 import json
 import time
 
+from app.engagement.schema import PostEventType
+from app.posts.models import PostModel
 from tests.helpers import real_image
 
 
@@ -357,3 +359,31 @@ class TestMultimediaUploadThroughAPI:
         )
         assert res.status_code == 200
         assert res.json()["image_url"] is None
+
+
+class TestCreatedEventsThroughAPI:
+    """A post becomes public once: on creation, or when its draft is published (item 29b)."""
+
+    def test_a_new_post_publishes_created(self, client, create_user, auth_header, published):
+        user = create_user(username="creator")
+
+        client.post("/posts/add", data={"text": "hello"}, headers=auth_header("creator"))
+
+        ((event_type, user_id),) = [(e.type, e.user_id) for e in published.events()]
+        assert (event_type, user_id) == (PostEventType.CREATED, user.id)
+
+    def test_a_draft_publishes_created_only_when_published(
+        self, client, create_user, auth_header, published, db_session
+    ):
+        create_user(username="drafter")
+
+        client.post(
+            "/posts/add", data={"text": "later", "is_draft": "true"}, headers=auth_header("drafter")
+        )
+        assert published.events() == []
+
+        draft = db_session.query(PostModel).filter_by(text="later").one()
+        client.post(f"/posts/drafts/publish/{draft.id}", headers=auth_header("drafter"))
+
+        ((event_type, post_id),) = [(e.type, e.post_id) for e in published.events()]
+        assert (event_type, post_id) == (PostEventType.CREATED, draft.id)
