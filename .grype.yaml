@@ -1,5 +1,14 @@
 # Grype (item 21): image vulnerability gate, used by publish.yml and
 # scripts/security-scan.sh with --fail-on critical --only-fixed.
-# Every ignore needs an expiry in tests/test_grype_ignores.py. The last one
-# (Firefox 157 in Playwright 1.64.1) went with the Playwright 1.65 upgrade.
-ignore: []
+ignore:
+  # Firefox 159, bundled by Playwright 1.65.0 for generator scraping (the
+  # private edition's firefox engine, for TLS-fingerprinting sites). 1.65.0
+  # fixed the Firefox 157 criticals, but 11 new criticals are fixed only in
+  # Firefox 160, which no Playwright release bundles yet (checked 2026-11-24:
+  # 1.65.1 and the 1.66 alpha both ship 159). Only admin-configured sources
+  # are scraped, so exposure is low. Remove this entry with the first
+  # Playwright that ships Firefox 160+ once it is 14 days old
+  # (tests/test_grype_ignores.py fails after 2026-12-31).
+  - package:
+      name: firefox
+      type: binary
