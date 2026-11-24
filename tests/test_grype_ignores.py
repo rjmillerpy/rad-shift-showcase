@@ -13,10 +13,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 
 # package name -> last day the ignore may stay (then upgrade, or re-justify).
-EXPIRES = {
-    # Playwright 1.65 (Firefox 160) passes the supply-chain cooldown on 2026-11-23.
-    "firefox": datetime.date(2026, 11, 30),
-}
+EXPIRES: dict[str, datetime.date] = {}
 
 
 def _ignored_packages() -> set[str]:
