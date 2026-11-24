@@ -16,7 +16,10 @@ Delivery is at least once. For each message:
   * unparseable: copied to the dead-letter topic with the error, then the
     offset is committed (retrying can't fix it);
   * database error: nothing is committed; the consumer seeks back and
-    retries the same message after a pause, so nothing is skipped.
+    retries the same message after a pause, so nothing is skipped;
+  * broker unreachable: polling returns nothing, and a failed commit or lag
+    report is logged and retried, never fatal (a crash here once left the
+    aggregator down after a Kafka restart; compose also restarts it).
 
 Prometheus scrapes :9102 for events processed and consumer lag (how far the
 group is behind the newest event): the health metric for any consumer.
@@ -31,7 +34,7 @@ from collections.abc import Callable
 from contextlib import AbstractContextManager
 from enum import StrEnum
 
-from confluent_kafka import Consumer, Message, Producer, TopicPartition
+from confluent_kafka import Consumer, KafkaException, Message, Producer, TopicPartition
 from confluent_kafka.admin import AdminClient
 from prometheus_client import REGISTRY, CollectorRegistry, Counter, Gauge, start_http_server
 from pydantic import ValidationError
@@ -50,9 +53,12 @@ from .constants import (
     KAFKA_BOOTSTRAP_SERVERS_ENV_VAR,
     LAG_REPORT_INTERVAL_SECONDS,
     LOG_EVENT_APPLIED,
+    LOG_EVENT_COMMIT_FAILED,
     LOG_EVENT_CONSUME_ERROR,
     LOG_EVENT_DB_FAILED,
     LOG_EVENT_DEAD_LETTERED,
+    LOG_EVENT_LAG_FAILED,
+    LOG_EVENT_PRUNE_FAILED,
     LOG_EVENT_PRUNED,
     LOG_EVENT_STARTED,
     LOG_EVENT_STOPPED,
@@ -170,7 +176,12 @@ def consume_one(
         consumer.seek(_origin(message))
         stop.wait(ERROR_BACKOFF_SECONDS)
         return outcome
-    consumer.commit(message=message, asynchronous=False)
+    try:
+        consumer.commit(message=message, asynchronous=False)
+    except KafkaException:
+        # The work is done and its event id stored; if the commit is lost,
+        # the message is redelivered after a restart and skipped as a duplicate.
+        logger.warning(LOG_EVENT_COMMIT_FAILED, exc_info=True, extra={"offset": message.offset()})
     return outcome
 
 
@@ -198,6 +209,24 @@ def prune(sessions: SessionFactory, now: float) -> int:
         return prune_processed(db, now - PROCESSED_EVENT_RETENTION_SECONDS)
 
 
+def _report_lag_or_log(consumer: Consumer) -> None:
+    """Lag needs the broker; while it's unreachable, skip a report, don't crash."""
+    try:
+        report_lag(consumer)
+    except KafkaException:
+        logger.warning(LOG_EVENT_LAG_FAILED, exc_info=True)
+
+
+def _prune_or_log(sessions: SessionFactory) -> None:
+    try:
+        pruned = prune(sessions, time.time())
+    except SQLAlchemyError:
+        logger.warning(LOG_EVENT_PRUNE_FAILED, exc_info=True)
+        return
+    if pruned:
+        logger.info(LOG_EVENT_PRUNED, extra={"events": pruned})
+
+
 def run(
     consumer: Consumer,
     sessions: SessionFactory,
@@ -212,13 +241,11 @@ def run(
         while not stop.is_set():
             consume_one(consumer, sessions, dlq, stop)
             if clock() >= next_lag_report:
-                report_lag(consumer)
                 next_lag_report = clock() + LAG_REPORT_INTERVAL_SECONDS
+                _report_lag_or_log(consumer)
             if clock() >= next_prune:
-                pruned = prune(sessions, time.time())
-                if pruned:
-                    logger.info(LOG_EVENT_PRUNED, extra={"events": pruned})
                 next_prune = clock() + PRUNE_INTERVAL_SECONDS
+                _prune_or_log(sessions)
     finally:
         # Commits nothing new (offsets are committed per message) and leaves
         # the group at once, so another instance takes the partitions over

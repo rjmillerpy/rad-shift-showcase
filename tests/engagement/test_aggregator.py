@@ -9,7 +9,7 @@ tests/kafka/ runs the same loop against a real broker.
 import threading
 
 import pytest
-from confluent_kafka import KafkaError, Message, TopicPartition
+from confluent_kafka import KafkaError, KafkaException, Message, TopicPartition
 from prometheus_client import REGISTRY
 from sqlalchemy.exc import OperationalError
 
@@ -26,6 +26,9 @@ from app.engagement.aggregator import (
 from app.engagement.constants import (
     HEADER_ERROR,
     HEADER_SOURCE,
+    LOG_EVENT_COMMIT_FAILED,
+    LOG_EVENT_LAG_FAILED,
+    LOG_EVENT_PRUNE_FAILED,
     LOG_EVENT_PRUNED,
     POST_EVENTS_DLQ_TOPIC,
     POST_EVENTS_TOPIC,
@@ -270,3 +273,52 @@ def test_prune_keeps_ids_that_can_still_be_replayed(db_session, sessions):
 
     assert prune(sessions, now) == 1
     assert db_session.get(ProcessedPostEvent, "replayable") is not None
+
+
+class TestBrokerOutage:
+    """Found in a drill: with Kafka stopped, the lag report raised and the process died."""
+
+    def broker_down(self, *args, **kwargs):
+        raise KafkaException(KafkaError(KafkaError._TRANSPORT))
+
+    def test_a_failed_commit_is_logged_and_the_work_kept(
+        self, db_session, sessions, stop, post, caplog
+    ):
+        consumer = FakeConsumer([liked(post.id)])
+        consumer.commit = self.broker_down
+
+        with caplog.at_level("WARNING"):
+            outcome = consume_one(consumer, sessions, RecordingProducer(), stop)
+
+        assert outcome is Outcome.APPLIED
+        assert db_session.get(PostTrending, post.id).score == 1.0
+        assert LOG_EVENT_COMMIT_FAILED in caplog.messages
+
+    def test_the_loop_survives_lag_reports_and_pruning_failing(self, sessions, stop, caplog):
+        consumer = FakeConsumer()
+        consumer.committed = self.broker_down
+        polls = []
+
+        def poll(timeout):
+            polls.append(timeout)
+            if len(polls) == 2:
+                stop.set()
+
+        consumer.poll = poll
+
+        def broken_sessions():
+            raise OperationalError("DELETE", {}, Exception("down"))
+
+        with caplog.at_level("WARNING"):
+            run(
+                consumer,
+                broken_sessions,
+                RecordingProducer(),
+                stop,
+                clock=iter(range(0, 10**6, 10**5)).__next__,
+            )
+
+        assert len(polls) == 2, "still polling after both failures"
+        assert LOG_EVENT_LAG_FAILED in caplog.messages
+        assert LOG_EVENT_PRUNE_FAILED in caplog.messages
+        assert consumer.closed
