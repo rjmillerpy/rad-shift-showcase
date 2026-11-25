@@ -199,3 +199,6 @@ caddy-root.crt
 
 # Spark job output (analytics/, item 31)
 /data/
+
+# Local Jenkins secrets (ci/jenkins/setup.sh)
+/ci/jenkins/.secrets/

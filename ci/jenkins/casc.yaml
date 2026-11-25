@@ -1,0 +1,76 @@
+# Jenkins configuration as code (roadmap item 35): everything a click-through
+# setup would do, in Git. Secrets are files mounted at /run/secrets
+# (setup.sh makes them; never in Git).
+jenkins:
+  systemMessage: "rad-shift CI (local, roadmap item 35). Configured by ci/jenkins/casc.yaml."
+  # The controller schedules; agents build. A build on the controller runs
+  # with access to Jenkins's own files (every secret it holds).
+  numExecutors: 0
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: admin
+          password: "${readFile:/run/secrets/admin-password}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+  nodes:
+    - permanent:
+        name: python-agent
+        labelString: python
+        numExecutors: 1
+        remoteFS: /home/jenkins/agent
+        launcher:
+          ssh:
+            host: agent
+            port: 22
+            credentialsId: agent-ssh-key
+            # Trust on first use: the first connection records the agent's
+            # host key, and a different key later is refused. (Pinning it up
+            # front would need the key file root-owned inside the agent.)
+            sshHostKeyVerificationStrategy:
+              manuallyTrustedKeyVerificationStrategy:
+                requireInitialManualTrust: false
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - basicSSHUserPrivateKey:
+              scope: SYSTEM
+              id: agent-ssh-key
+              username: jenkins
+              description: The controller's key for the build agent
+              privateKeySource:
+                directEntry:
+                  privateKey: "${readFile:/run/secrets/agent-key}"
+          # The kind cluster (deploy/), for the deploy stage: reachable on
+          # the kind Docker network as rad-shift-control-plane:6443.
+          - file:
+              scope: GLOBAL
+              id: kind-kubeconfig
+              description: kubeconfig for the local kind cluster
+              fileName: kubeconfig
+              secretBytes: "${readFileBase64:/run/secrets/kind-kubeconfig}"
+
+unclassified:
+  location:
+    url: http://localhost:8091/
+
+jobs:
+  # The repository is mounted read-only at /repo on the controller and the
+  # agent; the job builds main from it. Polled every 2 minutes (a webhook
+  # in a real setup: Jenkins can't be reached from GitHub here).
+  - script: >
+      pipelineJob('rad-shift') {
+        description('Build, lint, test, scan, package and deploy rad-shift (Jenkinsfile)')
+        properties { pipelineTriggers { triggers { pollSCM { scmpoll_spec('H/2 * * * *') } } } }
+        definition {
+          cpsScm {
+            scm { git { remote { url('file:///repo') }; branch('main') } }
+            scriptPath('Jenkinsfile')
+            lightweight(true)
+          }
+        }
+      }

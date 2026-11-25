@@ -1,0 +1,62 @@
+# Jenkins, building rad-shift from the Jenkinsfile (roadmap item 35). Free, local:
+#
+#   ci/jenkins/setup.sh                                   # secrets, once
+#   docker compose -f compose.jenkins.yaml up -d --build
+#   open http://localhost:8091                            # admin / ci/jenkins/.secrets/admin-password
+#
+# A controller (schedules, 0 executors) and one SSH build agent. Both mount
+# this checkout read-only at /repo; the job builds what's committed on main.
+# See ci/jenkins/README.md.
+
+name: radshift-jenkins
+
+services:
+  controller:
+    build:
+      context: ci/jenkins
+      dockerfile: Dockerfile.controller
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8091:8080"  # 8080 belongs to another local stack
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - ./:/repo:ro
+    secrets: [admin-password, agent-key, kind-kubeconfig]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:8080/login"]
+      start_period: 120s
+      start_interval: 5s
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  agent:
+    build:
+      context: ci/jenkins
+      dockerfile: Dockerfile.agent
+    restart: unless-stopped
+    # JENKINS_AGENT_SSH_PUBKEY: the controller's key, the only one it accepts.
+    env_file: ci/jenkins/.secrets/agent.env
+    volumes:
+      # The uv cache and Python live here between builds (much faster reruns).
+      - agent-home:/home/jenkins
+      - ./:/repo:ro
+    # kind: the deploy stage reaches the cluster's API server on that network.
+    networks: [default, kind]
+
+secrets:
+  admin-password:
+    file: ci/jenkins/.secrets/admin-password
+  agent-key:
+    file: ci/jenkins/.secrets/agent-key
+  kind-kubeconfig:
+    file: ci/jenkins/.secrets/kind-kubeconfig
+
+volumes:
+  jenkins-home:
+  agent-home:
+
+networks:
+  kind:
+    name: kind
+    external: true

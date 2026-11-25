@@ -1,0 +1,14 @@
+# The Jenkins controller (roadmap item 35): schedules and records builds,
+# runs none (0 executors). Configured entirely as code (casc.yaml).
+
+# Pinned by digest: Jenkins 2.580.2 LTS on JDK 21, pushed 2026-10-28.
+FROM jenkins/jenkins:2.580.2-lts-jdk21@sha256:74401de6a6f92e1afe1b02d1c8e3d0c33f263bfb5275dd8813f9150355f2367b
+
+COPY plugins.txt /usr/share/jenkins/ref/plugins.txt
+# Every plugin is pinned (a lockfile), so nothing is resolved at build time.
+RUN jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt
+
+COPY casc.yaml /usr/share/jenkins/ref/casc.yaml
+ENV CASC_JENKINS_CONFIG=/usr/share/jenkins/ref/casc.yaml \
+    # No setup wizard: the admin, the agent and the job come from casc.yaml.
+    JAVA_OPTS="-Djenkins.install.runSetupWizard=false -Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true"
