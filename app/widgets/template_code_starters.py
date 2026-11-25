@@ -46,15 +46,17 @@ STATE_STORE_CODE = """<div id="app">
   }
 
   var store = createStore(reducer, { count: 0 });
-  var status = document.getElementById("status");
+  // Not `var status`: at the top level that is window.status, which turns
+  // anything assigned to it into a string, so the element would be lost.
+  var statusText = document.getElementById("status");
 
   // Render on every change; save every change the user makes.
   store.subscribe(function (state, action) {
     document.getElementById("count").textContent = String(state.count);
     if (action.type === "load") return;
     radshift.storage.set("state", state)
-      .then(function () { status.textContent = "saved"; })
-      .catch(function (error) { status.textContent = error.message; });
+      .then(function () { statusText.textContent = "saved"; })
+      .catch(function (error) { statusText.textContent = error.message; });
   });
 
   document.getElementById("app").addEventListener("click", function (event) {
@@ -65,9 +67,9 @@ STATE_STORE_CODE = """<div id="app">
   radshift.storage.get("state")
     .then(function (saved) {
       if (saved) store.dispatch({ type: "load", state: saved });
-      status.textContent = saved ? "restored" : "new";
+      statusText.textContent = saved ? "restored" : "new";
     })
-    .catch(function (error) { status.textContent = error.message; })
+    .catch(function (error) { statusText.textContent = error.message; })
     .then(function () { document.body.dataset.ready = "yes"; });
 </script>
 """
@@ -82,7 +84,9 @@ WEBGL_CODE = """<canvas id="scene" width="300" height="220"></canvas>
 </style>
 <script>
   var canvas = document.getElementById("scene");
-  var status = document.getElementById("status");
+  // Not `var status`: at the top level that is window.status, which turns
+  // anything assigned to it into a string, so the element would be lost.
+  var statusText = document.getElementById("status");
   // preserveDrawingBuffer: the pixels stay readable after a frame (tests check one).
   var gl = canvas.getContext("webgl", { preserveDrawingBuffer: true });
 
@@ -95,7 +99,7 @@ WEBGL_CODE = """<canvas id="scene" width="300" height="220"></canvas>
   }
 
   if (!gl) {
-    status.textContent = "WebGL isn't available in this browser";
+    statusText.textContent = "WebGL isn't available in this browser";
     document.body.dataset.webgl = "unavailable";
   } else {
     var program = gl.createProgram();
@@ -135,7 +139,7 @@ WEBGL_CODE = """<canvas id="scene" width="300" height="220"></canvas>
       var pixel = new Uint8Array(4);
       gl.readPixels(canvas.width / 2, canvas.height / 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
       var drew = pixel[0] + pixel[1] + pixel[2] > 0;
-      status.textContent = drew ? "WebGL drawing" : "WebGL started, nothing drawn";
+      statusText.textContent = drew ? "WebGL drawing" : "WebGL started, nothing drawn";
       document.body.dataset.webgl = drew ? "drawing" : "blank";
     });
   }

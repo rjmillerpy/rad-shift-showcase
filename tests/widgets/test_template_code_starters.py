@@ -29,3 +29,10 @@ def test_both_are_offered_as_built_in_templates():
     by_name = {t["name"]: t for t in BUILTIN_TEMPLATES}
     assert by_name["State Store (Redux-style)"]["starter_code"] == STATE_STORE_CODE
     assert by_name["WebGL Starter"]["starter_code"] == WEBGL_CODE
+
+
+@pytest.mark.parametrize("code", [STATE_STORE_CODE, WEBGL_CODE], ids=["state", "webgl"])
+def test_no_global_named_status(code):
+    """A top-level `var status` is window.status, which stringifies the element
+    (the state starter's status line once stayed on "loading")."""
+    assert "var status " not in code and "var status=" not in code
