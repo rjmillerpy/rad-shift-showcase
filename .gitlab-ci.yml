@@ -1,0 +1,129 @@
+# rad-shift's pipeline in GitLab CI syntax (roadmap item 37): the same
+# checks as .github/workflows/ci.yml and the Jenkinsfile, written the GitLab
+# way. Run locally, free, with gitlab-ci-local (ci/gitlab/README.md); no
+# GitLab account and no copy of the code on gitlab.com.
+
+stages: [build, test, scan, package, deploy]
+
+variables:
+  UV_CACHE_DIR: .uv-cache
+  UV_LINK_MODE: copy
+  # Never report a CI run's errors to the real Sentry project.
+  SENTRY_DSN: ""
+  HELM_VERSION: v3.22.1
+  PIP_AUDIT: pip-audit==2.10.1
+
+# Defaults for the Python jobs; `extends: .python` reuses them.
+.python:
+  # uv 0.13.9 on Python 3.12, pinned by digest (the version CI pins).
+  image: ghcr.io/astral-sh/uv:0.13.9-python3.12-trixie-slim@sha256:b12436aceed37b21524b327362bd67e73a284b5d52f4f6be0e047dd8e4c4eb90
+  # The uv cache, keyed on the lockfile: a new lock starts a new cache.
+  cache:
+    key:
+      files: [uv.lock]
+    paths: [.uv-cache]
+    policy: pull
+  before_script:
+    - uv sync --locked --quiet
+
+build:
+  extends: .python
+  stage: build
+  cache:
+    key:
+      files: [uv.lock]
+    paths: [.uv-cache]
+    policy: pull-push  # only this job writes the cache
+  before_script: []
+  script:
+    - uv sync --locked
+
+lint:
+  extends: .python
+  stage: test
+  needs: [build]  # a DAG: starts as soon as build is done, not after the whole stage
+  script:
+    - uv run ruff check .
+    - uv run ruff format --check .
+    - uv run mypy
+
+test:
+  extends: .python
+  stage: test
+  needs: [build]
+  script:
+    - mkdir -p reports
+    - >
+      uv run pytest -q -n auto -m "not perf and not kafka and not helm and not spark"
+      --junitxml=reports/junit.xml --cov --cov-report=xml:reports/coverage.xml --cov-report=term
+  # GitLab reads the total from the log for the coverage badge and MR widget.
+  coverage: '/^TOTAL.*\s(\d+(?:\.\d+)?)%$/'
+  artifacts:
+    when: always
+    paths: [reports/]
+    reports:
+      junit: reports/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: reports/coverage.xml
+    expire_in: 1 week
+
+bandit:
+  extends: .python
+  stage: scan
+  needs: [build]
+  script:
+    - uv run bandit -q -c pyproject.toml -r app scripts analytics
+
+pip-audit:
+  extends: .python
+  stage: scan
+  needs: [build]
+  script:
+    - uv export --frozen --no-hashes --format requirements-txt --quiet > requirements.txt
+    - uv tool run --quiet "$PIP_AUDIT" -r requirements.txt --no-deps --disable-pip --progress-spinner off
+
+package:
+  extends: .python
+  stage: package
+  needs: [lint, test, bandit, pip-audit]
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates > /dev/null
+    - curl -fsSLO "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+    - echo "$(curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" | cut -d' ' -f1)  helm-${HELM_VERSION}-linux-amd64.tar.gz" | sha256sum -c
+    - tar xzf "helm-${HELM_VERSION}-linux-amd64.tar.gz" --strip-components=1 -C /usr/local/bin linux-amd64/helm
+  script:
+    - helm lint --strict deploy/helm/rad-shift
+    # Versioned by pipeline, stamped with the commit: the artifact deploy promotes.
+    - helm package deploy/helm/rad-shift --destination dist --version "0.1.0-pipeline.${CI_PIPELINE_IID}" --app-version "${CI_COMMIT_SHORT_SHA}"
+  artifacts:
+    paths: [dist/]
+    expire_in: 1 month
+
+deploy-staging:
+  stage: deploy
+  needs: [package]
+  # Only main, and only when a person starts it (a play button on the
+  # pipeline). On GitLab, `staging` would also be a protected environment,
+  # so only maintainers could run this job.
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+  environment:
+    name: staging
+  image: ghcr.io/astral-sh/uv:0.13.9-python3.12-trixie-slim@sha256:b12436aceed37b21524b327362bd67e73a284b5d52f4f6be0e047dd8e4c4eb90
+  # KUBECONFIG is a file-type CI/CD variable: on GitLab a masked, protected
+  # project variable; locally ci/gitlab/variables.yml (gitignored).
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates > /dev/null
+    - curl -fsSLO "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+    - echo "$(curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz.sha256sum" | cut -d' ' -f1)  helm-${HELM_VERSION}-linux-amd64.tar.gz" | sha256sum -c
+    - tar xzf "helm-${HELM_VERSION}-linux-amd64.tar.gz" --strip-components=1 -C /usr/local/bin linux-amd64/helm
+  script:
+    # Same staging release as the Jenkins pipeline: one is enough to prove it.
+    - >
+      helm upgrade --install rad-shift-staging dist/rad-shift-*.tgz --namespace rad-shift-staging
+      --set backend.autoscaling.enabled=false --set backend.replicas=1
+      --set worker.enabled=false --set kafka.enabled=false --set ingress.enabled=false
+      --wait --timeout 10m --atomic
+    - helm status rad-shift-staging --namespace rad-shift-staging

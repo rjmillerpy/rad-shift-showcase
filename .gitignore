@@ -202,3 +202,7 @@ caddy-root.crt
 
 # Local Jenkins secrets (ci/jenkins/setup.sh)
 /ci/jenkins/.secrets/
+
+# gitlab-ci-local: its working folder and the local CI/CD variables (ci/gitlab/)
+/.gitlab-ci-local/
+/ci/gitlab/variables.yml
