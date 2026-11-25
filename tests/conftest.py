@@ -44,6 +44,9 @@ os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""
 # publishing (tests that need them start them with their own fakes).
 os.environ["MEDIA_RESULTS_QUEUE_URL"] = ""
 os.environ["KAFKA_BOOTSTRAP_SERVERS"] = ""
+# Rate limits off: suites make many requests as one user from one address.
+# tests/ratelimit/ turns them on where it tests them.
+os.environ["RATE_LIMITS_ENABLED"] = "false"
 
 # tests/analytics/ imports pyspark, an opt-in dependency group
 # (`uv sync --group spark`); without it, skip collecting them instead of
@@ -149,6 +152,7 @@ import app.admin.models  # noqa: E402,F401
 # per-test create_all() builds them.
 import app.blog.models  # noqa: E402,F401
 import app.engagement.models  # noqa: E402,F401
+import app.ratelimit.models  # noqa: E402,F401
 import app.widgets.models  # noqa: E402,F401
 from app.auth.models import User  # noqa: E402
 from app.common.db import Base, get_db  # noqa: E402

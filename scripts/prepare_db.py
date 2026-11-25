@@ -40,6 +40,7 @@ import app.blog.models  # noqa: E402,F401
 import app.engagement.models  # noqa: E402,F401
 import app.generators.models  # noqa: E402,F401
 import app.posts.models  # noqa: E402,F401
+import app.ratelimit.models  # noqa: E402,F401
 import app.widgets.models  # noqa: E402,F401
 from app.common.db import Base, engine  # noqa: E402
 

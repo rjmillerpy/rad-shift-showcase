@@ -13,6 +13,12 @@ data:
   ALLOWED_ORIGINS: {{ .Values.publicUrl | quote }}
   APP_URL: {{ .Values.publicUrl | quote }}
   WIDGET_SERVER_EXECUTION_ENABLED: "false"
+  # Requests reach the API through the ingress controller, so the client's
+  # address is in X-Forwarded-For; without this every client looks like the
+  # ingress, and the per-IP rate limits (app/ratelimit/) are shared by all.
+  # "*" trusts any pod in the cluster to set it; a NetworkPolicy letting only
+  # the ingress reach the API closes that.
+  FORWARDED_ALLOW_IPS: "*"
   {{- if .Values.kafka.enabled }}
   KAFKA_BOOTSTRAP_SERVERS: {{ printf "%s:9092" (include "rad-shift.name" (dict "root" . "component" "kafka")) | quote }}
   {{- end }}

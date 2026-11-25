@@ -5,7 +5,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -19,6 +19,7 @@ from .avatar.views import avatar_router
 from .blog.views import blog_router
 from .common.config import Config
 from .common.db import create_tables, engine
+from .common.route_templates import RouteTemplates
 from .engagement import producer as post_events
 from .flags import service as flags
 from .follow.views import follow_router
@@ -34,6 +35,7 @@ from .metrics.views import metrics_router
 from .plugins import edition
 from .posts.views import posts_router
 from .profile.views import profile_router
+from .ratelimit.deps import enforce_rate_limits
 from .tracing import setup as tracing
 from .tracing.constants import OTLP_ENDPOINT_ENV_VAR, SERVICE_NAME_ENV_VAR
 from .trends.views import trends_router
@@ -110,7 +112,10 @@ def _authjwt_exception_handler(
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(lifespan=_lifespan)
+    # Every request passes the rate limits first (app/ratelimit/).
+    app = FastAPI(lifespan=_lifespan, dependencies=[Depends(enforce_rate_limits)])
+    # Full route templates for the rate limits, built on the first request.
+    app.state.route_templates = RouteTemplates()
 
     app.add_exception_handler(AuthJWTException, _authjwt_exception_handler)
 

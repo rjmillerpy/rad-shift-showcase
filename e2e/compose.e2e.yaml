@@ -16,6 +16,9 @@ services:
       ANTHROPIC_API_KEY: ""   # no paid LLM calls; chronicle uses its rule-based fallback
       RESEND_API_KEY: ""      # verification emails are logged, never sent
       SENTRY_DSN: ""          # the tests' deliberate failures never reach Sentry
+      # Every test signs up a new user from this one address, past the signup
+      # limit (5 an hour per IP). The limits are tested in tests/ratelimit/.
+      RATE_LIMITS_ENABLED: "false"
       # Traces go to the overlay's Tempo only when it's running (E2E_OBS=1).
       OTEL_EXPORTER_OTLP_ENDPOINT: ${E2E_OTLP_ENDPOINT:-}
     # Don't mount ~/.aws: no AWS credentials inside the test stack.

@@ -20,6 +20,7 @@ from app.posts.models import (  # noqa
     Repost,
     Slop,
 )
+from app.ratelimit.models import RateLimitWindow  # noqa
 
 load_dotenv()
 
