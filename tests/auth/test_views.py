@@ -62,6 +62,14 @@ class TestLogin:
         assert resp.status_code == 401
         assert resp.json()["detail"] == "Invalid credentials"
 
+    def test_login_banned_user_is_403(self, client, create_user, db_session):
+        user = create_user(username="alice", password="securepass1")
+        user.is_banned = True
+        db_session.commit()
+        resp = client.post("/auth/login", json={"username": "alice", "password": "securepass1"})
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == "This account is suspended."
+
     def test_login_nonexistent_user(self, client):
         resp = client.post("/auth/login", json={"username": "ghost", "password": "whatever1"})
         assert resp.status_code == 401

@@ -36,17 +36,18 @@ from app.blog.tracking import get_blog_stats, record_blog_view
 from app.common.auth_jwt import AuthJWT, AuthJWTException
 from app.common.db import get_db
 from app.common.schema import StatusResponse
-from app.common.utils import get_user, require_verified
+from app.common.utils import get_user, require_active, require_verified
 
 blog_router = APIRouter()
 
 
 def _require_user(Authorize: AuthJWT, db: Session) -> User:
-    """Resolve the current user from the JWT. Raises 401/404."""
+    """Resolve the current user from the JWT. Raises 401/404, or 403 if banned."""
     Authorize.jwt_required()
     user = get_user(Authorize.get_jwt_subject(), db)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    require_active(user)
     return user
 
 
@@ -130,8 +131,10 @@ def my_drafts(
 
 
 @blog_router.get("/slug/{slug}")
-def get_blog_by_slug(slug: str, db: Session = Depends(get_db)) -> BlogPostResponse:
-    post = get_visible_blog_by_slug(slug, db)
+def get_blog_by_slug(
+    slug: str, Authorize: AuthJWT = Depends(), db: Session = Depends(get_db)
+) -> BlogPostResponse:
+    post = get_visible_blog_by_slug(slug, db, viewer_id=_optional_jwt_user_id(Authorize, db))
     return BlogPostResponse.model_validate({"blog_post": blog_post_to_dict(post)})
 
 
@@ -176,7 +179,7 @@ def _optional_jwt_user_id(Authorize: AuthJWT, db: Session) -> int | None:
     if not username:
         return None
     user = get_user(username, db)
-    return user.id if user else None
+    return user.id if user and not user.is_banned else None
 
 
 @blog_router.get("/{post_id}/stats")

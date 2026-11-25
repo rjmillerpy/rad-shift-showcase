@@ -17,6 +17,7 @@ from .serializer import (
     _exclude_drafts_query,
     _exclude_slopped_query,
     build_post_responses,
+    by_active_authors,
     get_ordered_model,
 )
 
@@ -58,7 +59,7 @@ class AlgoWeights:
 
 
 def _base_feed_query(db: Session) -> Query[PostModel]:
-    return (
+    return by_active_authors(
         db.query(PostModel)
         .options(joinedload(PostModel.user), joinedload(PostModel.parent_post))
         .filter(PostModel.is_reply == False)  # noqa: E712
@@ -71,9 +72,11 @@ def get_replies_formatted(
     current_user: User | None = None,
     desc: bool = True,
 ) -> list[PostResponse]:
-    base_query = db.query(PostModel).filter(
-        PostModel.parent_post_id == parent_post_id,
-        PostModel.is_reply == True,  # noqa: E712
+    base_query = by_active_authors(
+        db.query(PostModel).filter(
+            PostModel.parent_post_id == parent_post_id,
+            PostModel.is_reply == True,  # noqa: E712
+        )
     )
     drafts_excluded = _exclude_drafts_query(base_query)
     replies = (
@@ -170,13 +173,12 @@ def _algo_score_query(db: Session, weights: AlgoWeights) -> Query[PostModel]:
     )
     score = engagement + recency_score
 
-    return (
+    return by_active_authors(
         db.query(PostModel)
         .outerjoin(slop_count_sq, PostModel.id == slop_count_sq.c.post_id)
         .options(joinedload(PostModel.user), joinedload(PostModel.parent_post))
         .filter(PostModel.is_reply == False)  # noqa: E712
-        .order_by(score.desc(), PostModel.unix_timestamp.desc())
-    )
+    ).order_by(score.desc(), PostModel.unix_timestamp.desc())
 
 
 def get_algo_posts_formatted(
@@ -231,7 +233,7 @@ def get_single_post_formatted(
     current_user: User | None = None,
 ) -> PostResponse | None:
     post = (
-        db.query(PostModel)
+        by_active_authors(db.query(PostModel))
         .options(joinedload(PostModel.user), joinedload(PostModel.parent_post))
         .filter(PostModel.id == post_id)
         .first()
@@ -252,7 +254,7 @@ def get_saved_posts_formatted(
     if not post_ids:
         return []
     posts = (
-        db.query(PostModel)
+        by_active_authors(db.query(PostModel))
         .options(joinedload(PostModel.user), joinedload(PostModel.parent_post))
         .filter(PostModel.id.in_(post_ids))
         .filter(PostModel.is_draft == False)  # noqa: E712

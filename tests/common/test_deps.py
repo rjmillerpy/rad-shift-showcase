@@ -9,6 +9,7 @@ import pytest
 
 from app.auth.models import User
 from app.common.auth_jwt import AuthJWT
+from app.common.constants import ACCOUNT_SUSPENDED_DETAIL
 
 
 def _token_headers(subject: str) -> dict:
@@ -59,6 +60,30 @@ class TestRequiredUser:
         resp = client.get("/posts/saved", headers=_token_headers("ghost"))
         assert resp.status_code == 404
         assert resp.json()["detail"] == "User not found"
+
+
+class TestBannedUser:
+    """A ban applies at once: a token issued before it stops working."""
+
+    @pytest.fixture()
+    def banned(self, create_user, db_session):
+        user = create_user(username="banned")
+        user.is_banned = True
+        db_session.commit()
+        return user
+
+    def test_required_user_is_403(self, client, banned, auth_header):
+        resp = client.get("/posts/saved", headers=auth_header("banned"))
+        assert resp.status_code == 403
+        assert resp.json()["detail"] == ACCOUNT_SUSPENDED_DETAIL
+
+    def test_optional_user_reads_as_anonymous(
+        self, client, banned, create_user, create_post, auth_header
+    ):
+        create_post(user=create_user(username="author"), text="hello")
+        resp = client.get("/posts/", headers=auth_header("banned"))
+        assert resp.status_code == 200
+        assert [p["is_me"] for p in resp.json()["posts"]] == [False]
 
 
 class TestVerifiedUser:

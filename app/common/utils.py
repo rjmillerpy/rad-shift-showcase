@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Query, Session
 
 from app.auth.models import User
+from app.common.constants import ACCOUNT_SUSPENDED_DETAIL
 
 
 def get_user(username: str | None, db: Session) -> User | None:
@@ -15,6 +16,16 @@ def get_user(username: str | None, db: Session) -> User | None:
     if not username:
         return None
     return db.query(User).filter_by(username=username).first()
+
+
+def require_active(user: User) -> None:
+    """Raise 403 if an admin has banned the user.
+
+    Checked on every authenticated request, not only at login: a ban takes
+    effect at once, even for a token issued before it.
+    """
+    if user.is_banned:
+        raise HTTPException(status_code=403, detail=ACCOUNT_SUSPENDED_DETAIL)
 
 
 def require_verified(user: User) -> None:

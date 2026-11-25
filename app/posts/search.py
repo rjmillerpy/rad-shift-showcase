@@ -15,6 +15,7 @@ from .serializer import (
     _exclude_drafts_query,
     _exclude_slopped_query,
     build_post_responses,
+    by_active_authors,
 )
 
 
@@ -28,7 +29,7 @@ def search_posts_formatted(
     """Search posts by text content or tags in metadata."""
     pattern = f"%{query}%"
     base_query = (
-        db.query(PostModel)
+        by_active_authors(db.query(PostModel))
         .options(joinedload(PostModel.user), joinedload(PostModel.parent_post))
         .filter(PostModel.is_reply == False)  # noqa: E712
         .filter(

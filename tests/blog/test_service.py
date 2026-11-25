@@ -153,10 +153,23 @@ class TestVisibility:
         post = service.create_blog_post(user, _create_body(is_draft=False), db_session)
         assert service.get_visible_blog_by_slug(post.slug, db_session).id == post.id
 
-    def test_get_visible_blog_by_slug_returns_draft(self, db_session, create_user):
+    def test_a_draft_is_visible_to_its_author(self, db_session, create_user):
         user = create_user(username="vis2")
         post = service.create_blog_post(user, _create_body(is_draft=True), db_session)
-        assert service.get_visible_blog_by_slug(post.slug, db_session).id == post.id
+        assert (
+            service.get_visible_blog_by_slug(post.slug, db_session, viewer_id=user.id).id == post.id
+        )
+
+    @pytest.mark.parametrize("viewer", ["anonymous", "someone else"])
+    def test_a_draft_is_hidden_from_everyone_else(self, db_session, create_user, viewer):
+        """Known bug: drafts were readable by anyone who had the slug."""
+        author = create_user(username="vis2b")
+        other = create_user(username="vis2c")
+        post = service.create_blog_post(author, _create_body(is_draft=True), db_session)
+        viewer_id = None if viewer == "anonymous" else other.id
+        with pytest.raises(HTTPException) as exc:
+            service.get_visible_blog_by_slug(post.slug, db_session, viewer_id=viewer_id)
+        assert exc.value.status_code == 404
 
     def test_get_visible_blog_missing_slug_404(self, db_session):
         with pytest.raises(HTTPException) as exc:

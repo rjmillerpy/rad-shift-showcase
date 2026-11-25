@@ -2,6 +2,9 @@ from sqlalchemy import JSON, Column, ForeignKey, Integer, String, Text
 
 from app.common.db import Base
 
+# A new report, waiting for a moderator; moderators then review or dismiss it.
+REPORT_STATUS_PENDING = "pending"
+
 
 class AdminAction(Base):
     """Audit log for admin actions."""
@@ -27,7 +30,9 @@ class Report(Base):
     reporter_user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
     post_id = Column(Integer, ForeignKey("posts.id"), index=True, nullable=False)
     reason = Column(String(500), nullable=False)
-    status = Column(String(20), default="pending", nullable=False)  # pending, reviewed, dismissed
+    status = Column(
+        String(20), default=REPORT_STATUS_PENDING, nullable=False
+    )  # pending, reviewed, dismissed
     unix_timestamp = Column(Integer, nullable=False)
     reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     reviewed_at = Column(Integer, nullable=True)

@@ -20,6 +20,7 @@ from app.generators.constants import (
     SCHEDULER_POLL_INTERVAL_SECONDS,
 )
 from app.generators.models import GeneratorSource
+from app.generators.platforms.base import PLATFORM_WEB
 from app.generators.service import run_scraper
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,9 @@ def _find_due_sources(db: Session) -> list[GeneratorSource]:
 
     due: list[GeneratorSource] = []
     for source in active_sources:
-        if not source.selectors:
+        # Only web sources scrape with CSS selectors; platform sources
+        # (Reddit, ...) have none and must still run.
+        if source.platform == PLATFORM_WEB and not source.selectors:
             continue
         interval_seconds = source.run_interval_minutes * 60
         last_run = source.last_run_at or 0

@@ -11,7 +11,7 @@ from app.auth.models import User
 from app.common.auth_jwt import AuthJWT, AuthJWTException
 from app.common.db import get_db
 from app.common.deps import require_admin
-from app.common.utils import get_user
+from app.common.utils import get_user, require_active
 from app.flags.constants import Flag
 from app.flags.service import is_enabled
 from app.widgets.compiler import compile_multi_panel, compile_to_html
@@ -62,6 +62,7 @@ def _require_user(Authorize: AuthJWT, db: Session) -> User:
     user = get_user(Authorize.get_jwt_subject(), db)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    require_active(user)
     return user
 
 

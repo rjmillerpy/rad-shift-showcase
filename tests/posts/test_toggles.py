@@ -188,3 +188,57 @@ class TestEventsPublished:
         )
 
         assert published.events() == []
+
+
+class TestReportPost:
+    """app.posts.toggles.report_post: the row moderators review."""
+
+    def test_files_a_pending_report_with_the_reason(self, db_session, create_user, create_post):
+        from app.admin.models import Report
+        from app.posts.toggles import report_post
+
+        post = create_post(user=create_user(username="author"))
+        reporter = create_user(username="reporter")
+
+        assert report_post(post.id, reporter, "spam", db_session) == {
+            "status": "ok",
+            "post_id": post.id,
+        }
+
+        (row,) = db_session.query(Report).all()
+        assert (row.post_id, row.reporter_user_id, row.reason, row.status) == (
+            post.id, reporter.id, "spam", "pending",
+        )  # fmt: skip
+
+    def test_reporting_again_updates_instead_of_duplicating(
+        self, db_session, create_user, create_post
+    ):
+        from app.admin.models import Report
+        from app.posts.toggles import report_post
+
+        post = create_post(user=create_user(username="author"))
+        reporter = create_user(username="reporter")
+        report_post(post.id, reporter, "spam", db_session)
+
+        assert report_post(post.id, reporter, "harassment", db_session)["status"] == "updated"
+        assert [r.reason for r in db_session.query(Report).all()] == ["harassment"]
+
+    def test_your_own_post_cannot_be_reported(self, db_session, create_user, create_post):
+        from fastapi import HTTPException
+
+        from app.posts.toggles import report_post
+
+        author = create_user(username="author")
+        post = create_post(user=author)
+        with pytest.raises(HTTPException) as exc:
+            report_post(post.id, author, "spam", db_session)
+        assert exc.value.status_code == 400
+
+    def test_a_missing_post_is_404(self, db_session, create_user):
+        from fastapi import HTTPException
+
+        from app.posts.toggles import report_post
+
+        with pytest.raises(HTTPException) as exc:
+            report_post(999, create_user(username="reporter"), "spam", db_session)
+        assert exc.value.status_code == 404

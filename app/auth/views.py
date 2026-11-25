@@ -15,6 +15,7 @@ from app.auth.service import (
 from app.common.auth_jwt import AuthJWT
 from app.common.db import get_db
 from app.common.schema import MessageResponse
+from app.common.utils import require_active
 
 auth_router = APIRouter()
 
@@ -44,6 +45,7 @@ def login(
     user = authenticate_user(data, db)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    require_active(user)
     token = Authorize.create_access_token(subject=user.username)
     return LoginResponse(access_token=token, email_verified=user.email_verified)
 

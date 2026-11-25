@@ -210,3 +210,6 @@ caddy-root.crt
 # Ansible: keys, vault password, known hosts, installed collections (ansible/)
 /ansible/.secrets/
 /ansible/collections/
+
+# Test reports that CI jobs write (gitlab-ci-local copies artifacts back here)
+/reports/

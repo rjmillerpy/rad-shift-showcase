@@ -8,7 +8,8 @@ tests/auth/test_models.py) per rule 48.
 import pytest
 from fastapi import HTTPException
 
-from app.common.utils import get_user, require_verified
+from app.common.constants import ACCOUNT_SUSPENDED_DETAIL
+from app.common.utils import get_user, require_active, require_verified
 
 
 class TestGetUser:
@@ -25,6 +26,20 @@ class TestGetUser:
         create_user(username="alice")
         # Postgres would be case-sensitive; SQLite is by default too.
         assert get_user("ALICE", db_session) is None
+
+
+class TestRequireActive:
+    def test_passes_when_not_banned(self, create_user):
+        require_active(create_user(username="member"))  # no raise
+
+    def test_raises_403_when_banned(self, db_session, create_user):
+        user = create_user(username="banned")
+        user.is_banned = True
+        db_session.commit()
+        with pytest.raises(HTTPException) as exc:
+            require_active(user)
+        assert exc.value.status_code == 403
+        assert exc.value.detail == ACCOUNT_SUSPENDED_DETAIL
 
 
 class TestRequireVerified:

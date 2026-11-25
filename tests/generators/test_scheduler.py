@@ -35,6 +35,23 @@ class TestFindDueSources:
         assert len(due) == 1
         assert due[0].id == source.id
 
+    def test_returns_a_due_platform_source_without_selectors(self, db_session):
+        """Known bug: non-web sources have no selectors and were never scheduled."""
+        source = GeneratorSource(
+            name="Reddit Source",
+            site_url="https://www.reddit.com/r/python",
+            platform="reddit",
+            platform_config={"subreddit": "python"},
+            is_active=True,
+            run_interval_minutes=10,
+            last_run_at=int(time.time()) - 700,
+            selectors=None,
+        )
+        db_session.add(source)
+        db_session.commit()
+
+        assert [s.id for s in _find_due_sources(db_session)] == [source.id]
+
     def test_skips_not_yet_due(self, db_session):
         now = int(time.time())
         source = GeneratorSource(

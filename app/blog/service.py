@@ -149,15 +149,20 @@ def get_blog_post_by_id(post_id: int, db: Session) -> BlogPost | None:
     return db.query(BlogPost).filter_by(id=post_id).first()
 
 
-def get_visible_blog_by_slug(slug: str, db: Session) -> BlogPost:
-    """Fetch a blog by slug and enforce public visibility. Raises 404 if hidden."""
+def get_visible_blog_by_slug(slug: str, db: Session, viewer_id: int | None = None) -> BlogPost:
+    """Fetch a blog by slug, as `viewer_id` may see it. Raises 404 if hidden.
+
+    Published posts are public. A draft is visible only to its author: anyone
+    else gets the same 404 as a missing slug, so a draft's existence doesn't leak.
+    """
     post = get_blog_post_by_slug(slug, db)
-    if post is None:
-        raise HTTPException(status_code=404, detail="Blog post not found")
-    if not post.is_published and not post.is_draft:
-        # Neither published nor an accessible draft — treat as absent.
-        raise HTTPException(status_code=404, detail="Blog post not found")
-    return post
+    if post is None or post.is_published:
+        if post is None:
+            raise HTTPException(status_code=404, detail="Blog post not found")
+        return post
+    if post.is_draft and viewer_id is not None and post.user_id == viewer_id:
+        return post
+    raise HTTPException(status_code=404, detail="Blog post not found")
 
 
 def list_blog_posts(

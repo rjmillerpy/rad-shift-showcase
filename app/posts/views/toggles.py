@@ -11,6 +11,7 @@ from ..schema import (
     LaughToggleResponse,
     LikeToggleResponse,
     PostStatusResponse,
+    ReportRequest,
     RepostToggleResponse,
     SaveToggleResponse,
     ShareResponse,
@@ -18,6 +19,7 @@ from ..schema import (
 )
 from ..toggles import (
     mark_post_slop,
+    report_post,
     share_post,
     toggle_laugh,
     toggle_like,
@@ -81,3 +83,13 @@ def mark_slop(
     db: Session = Depends(get_db),
 ) -> PostStatusResponse:
     return PostStatusResponse.model_validate(mark_post_slop(post_id, user, payload.reason, db))
+
+
+@router.post("/report/{post_id}")
+def report(
+    post_id: int,
+    payload: ReportRequest,
+    user: User = Depends(verified_user),
+    db: Session = Depends(get_db),
+) -> PostStatusResponse:
+    return PostStatusResponse.model_validate(report_post(post_id, user, payload.reason, db))

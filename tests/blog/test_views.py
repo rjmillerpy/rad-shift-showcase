@@ -295,6 +295,7 @@ class TestGetBySlug:
             client,
             auth_header("blogger"),
             title="Hello World",
+            is_draft=False,  # a draft is visible to its author only (TestDraftBySlug)
         ).json()["blog_post"]
         resp = client.get(f"/blog/slug/{post['slug']}")
         assert resp.status_code == 200
@@ -392,3 +393,22 @@ class TestBlogStats:
         ).json()["blog_post"]["id"]
         resp = client.get(f"/blog/{post_id}/stats", headers=auth_header("other"))
         assert resp.status_code == 403
+
+
+class TestDraftBySlug:
+    """A draft's slug URL works for its author only (known bug: it was public)."""
+
+    def _draft_slug(self, client, create_user, auth_header):
+        create_user(username="author")
+        create_user(username="reader")
+        resp = _create_blog(client, auth_header("author"), is_draft=True)
+        return resp.json()["blog_post"]["slug"]
+
+    def test_the_author_can_read_it(self, client, create_user, auth_header):
+        slug = self._draft_slug(client, create_user, auth_header)
+        assert client.get(f"/blog/slug/{slug}", headers=auth_header("author")).status_code == 200
+
+    def test_anyone_else_gets_404(self, client, create_user, auth_header):
+        slug = self._draft_slug(client, create_user, auth_header)
+        assert client.get(f"/blog/slug/{slug}").status_code == 404
+        assert client.get(f"/blog/slug/{slug}", headers=auth_header("reader")).status_code == 404

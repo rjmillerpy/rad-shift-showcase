@@ -172,6 +172,8 @@ def get_user_profile(
         subject = Authorize.get_jwt_subject()
         if subject:
             current_user = get_user(subject, db)
+            if current_user is not None and current_user.is_banned:
+                current_user = None  # banned: views like an anonymous visitor
     except AuthJWTException:
         current_user = None  # Public read; unauth OK by design.
     return ProfileResponse.model_validate(_get_user_profile(user, current_user=current_user, db=db))

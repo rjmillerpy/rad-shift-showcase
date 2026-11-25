@@ -9,7 +9,7 @@ from app.avatar.generator import generate_avatar, generate_avatar_url
 from app.avatar.schema import AvatarUrlResponse
 from app.common.auth_jwt import AuthJWT
 from app.common.db import get_db
-from app.common.utils import get_user
+from app.common.utils import get_user, require_active
 
 avatar_router = APIRouter()
 
@@ -39,6 +39,7 @@ def regenerate_avatar(
     user = get_user(username, db)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    require_active(user)
     avatar_url = generate_avatar_url(username, user.email)
     user.profile_picture_url = avatar_url
     db.commit()

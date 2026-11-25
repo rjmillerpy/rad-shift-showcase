@@ -10,7 +10,7 @@ from app.auth.models import User
 from app.common.auth_jwt import AuthJWT
 from app.common.db import get_db
 from app.common.schema import MessageResponse
-from app.common.utils import get_user, require_verified
+from app.common.utils import get_user, require_active, require_verified
 from app.follow.service import follow_user, is_following, unfollow_user
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,7 @@ def _resolve_follow_target(
     current = get_user(Authorize.get_jwt_subject(), db)
     if current is None:
         raise HTTPException(status_code=404, detail="User not found")
+    require_active(current)
     require_verified(current)
     target = get_user(username, db)
     if target is None:

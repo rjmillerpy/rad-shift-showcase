@@ -1,6 +1,7 @@
 """Tests for app/posts/serializer.py — batch PostResponse construction."""
 
 from app.posts import serializer
+from app.posts.models import PostModel
 
 
 class TestGetOrderedModel:
@@ -113,3 +114,26 @@ class TestBuildPostResponses:
 
     def test_backwards_compat_alias(self):
         assert serializer._build_post_responses is serializer.build_post_responses
+
+
+class TestByActiveAuthors:
+    def test_leaves_out_banned_authors_posts_only(self, db_session, create_user, create_post):
+        kept = create_post(user=create_user(username="member"), text="kept")
+        banned = create_user(username="banned")
+        create_post(user=banned, text="hidden")
+        banned.is_banned = True
+        db_session.commit()
+
+        posts = serializer.by_active_authors(db_session.query(PostModel)).all()
+
+        assert [p.id for p in posts] == [kept.id]
+
+    def test_unbanning_brings_them_back(self, db_session, create_user, create_post):
+        author = create_user(username="author")
+        post = create_post(user=author)
+        author.is_banned = True
+        db_session.commit()
+        author.is_banned = False
+        db_session.commit()
+
+        assert serializer.by_active_authors(db_session.query(PostModel)).all() == [post]

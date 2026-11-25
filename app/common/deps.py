@@ -1,7 +1,8 @@
 """FastAPI dependencies that resolve the current user from the JWT.
 
-    optional_user: the user, or None for an anonymous request
-    required_user: the user, or 401 (no/expired token) / 404 (user gone)
+    optional_user: the user, or None for an anonymous request (or a banned user)
+    required_user: the user, or 401 (no/expired token) / 404 (user gone) /
+                   403 (banned)
     verified_user: required_user plus the email-verified gate (403)
     require_admin: 403 unless the user is an admin
 
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.auth.models import User
 from app.common.auth_jwt import AuthJWT, AuthJWTException
 from app.common.db import get_db
-from app.common.utils import get_user, require_verified
+from app.common.utils import get_user, require_active, require_verified
 
 
 def optional_user(
@@ -34,7 +35,9 @@ def optional_user(
         return None
     if not username:
         return None
-    return get_user(username, db)
+    user = get_user(username, db)
+    # A banned user reads public pages as an anonymous visitor would.
+    return user if user is not None and not user.is_banned else None
 
 
 def required_user(
@@ -46,6 +49,7 @@ def required_user(
     user = get_user(Authorize.get_jwt_subject(), db)
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    require_active(user)
     return user
 
 

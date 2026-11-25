@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.common.schema import FrozenModel
 
-from .constants import MAX_POST_TEXT_CHARS
+from .constants import MAX_POST_TEXT_CHARS, MAX_REPORT_REASON_LENGTH
 
 
 class PostCreateRequest(BaseModel):
@@ -22,6 +22,12 @@ class PostCreateRequest(BaseModel):
 
 class SlopRequest(BaseModel):
     reason: str = Field(..., min_length=1)
+
+
+class ReportRequest(BaseModel):
+    """Why a post breaks the rules; moderators read it in the admin queue."""
+
+    reason: str = Field(..., min_length=1, max_length=MAX_REPORT_REASON_LENGTH)
 
 
 @dataclass
@@ -103,7 +109,7 @@ class PostCreatedResponse(FrozenModel):
 
 
 class PostStatusResponse(FrozenModel):
-    """Outcome of an action on one post (publish a draft, report slop)."""
+    """Outcome of an action on one post (publish a draft, report slop, report it)."""
 
     status: str
     post_id: int

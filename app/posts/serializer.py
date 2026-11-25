@@ -8,7 +8,7 @@ warns against).
 import json
 from typing import Any
 
-from sqlalchemy import UnaryExpression, func
+from sqlalchemy import UnaryExpression, func, select
 from sqlalchemy.orm import Query, Session
 
 from app.auth.models import User
@@ -28,6 +28,13 @@ def get_metadata(post: PostModel) -> dict:
         return json.loads(post.post_metadata) if post.post_metadata else {}
     except (json.JSONDecodeError, TypeError):
         return {}
+
+
+def by_active_authors(query: Query[PostModel]) -> Query[PostModel]:
+    """Leave out posts whose author is banned: while banned, their posts vanish
+    from feeds, replies, search and direct links; unbanning brings them back."""
+    banned = select(User.id).where(User.is_banned.is_(True))
+    return query.filter(PostModel.user_id.not_in(banned))
 
 
 def _exclude_drafts_query(base_query: Query[PostModel]) -> Query[PostModel]:

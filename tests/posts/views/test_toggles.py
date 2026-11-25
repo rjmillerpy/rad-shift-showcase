@@ -296,3 +296,29 @@ class TestSlop:
         resp = client.get("/posts/", headers=headers)
         # The slopped post should be excluded for this user
         assert all(p["text"] != "sloppy" for p in resp.json()["posts"])
+
+
+class TestReport:
+    """POST /posts/report/{id} (known bug: the frontend called it and it didn't exist)."""
+
+    def test_a_verified_user_files_a_report(self, client, create_user, create_post, auth_header):
+        post = create_post(user=create_user(username="author"))
+        create_user(username="reporter")
+        resp = client.post(
+            f"/posts/report/{post.id}", json={"reason": "spam"}, headers=auth_header("reporter")
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok", "post_id": post.id}
+
+    @pytest.mark.parametrize("body", [{}, {"reason": ""}, {"reason": "x" * 501}])
+    def test_a_reason_is_required_and_bounded(
+        self, client, create_user, create_post, auth_header, body
+    ):
+        post = create_post(user=create_user(username="author"))
+        create_user(username="reporter")
+        resp = client.post(f"/posts/report/{post.id}", json=body, headers=auth_header("reporter"))
+        assert resp.status_code == 422
+
+    def test_anonymous_is_401(self, client, create_user, create_post):
+        post = create_post(user=create_user(username="author"))
+        assert client.post(f"/posts/report/{post.id}", json={"reason": "spam"}).status_code == 401

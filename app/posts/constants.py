@@ -119,3 +119,6 @@ MEDIA_TYPE_FILTERS = {
         (PostModel.audio_url.isnot(None)) | (PostModel.video_url.isnot(None))
     ),
 }
+
+# A report's reason, as long as the reports.reason column allows.
+MAX_REPORT_REASON_LENGTH = 500
