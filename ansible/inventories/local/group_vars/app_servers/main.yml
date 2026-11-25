@@ -1,0 +1,3 @@
+---
+# Secrets live in vault.yml next to this file, encrypted with ansible-vault;
+# the password is .secrets/vault-password (gitignored; test.sh makes it).

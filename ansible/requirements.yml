@@ -1,0 +1,7 @@
+# Collections, pinned (each at least 14 days old when pinned):
+#   ansible-galaxy collection install -r requirements.yml -p collections
+collections:
+  - name: community.docker
+    version: 5.4.0
+  - name: ansible.posix
+    version: 2.2.2

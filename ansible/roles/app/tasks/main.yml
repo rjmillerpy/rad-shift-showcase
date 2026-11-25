@@ -1,0 +1,92 @@
+---
+- name: Make the app directory
+  ansible.builtin.file:
+    path: "{{ app_dir }}"
+    state: directory
+    owner: "{{ base_deploy_user }}"
+    group: "{{ base_deploy_user }}"
+    mode: "0750"
+
+- name: Write the settings (secrets from the vault; mode 600)
+  ansible.builtin.template:
+    src: env.j2
+    dest: "{{ app_dir }}/.env"
+    owner: "{{ base_deploy_user }}"
+    group: "{{ base_deploy_user }}"
+    mode: "0600"
+  notify: Recreate the app
+
+- name: Write the Compose file
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ app_dir }}/compose.yaml"
+    owner: "{{ base_deploy_user }}"
+    group: "{{ base_deploy_user }}"
+    mode: "0640"
+  notify: Recreate the app
+
+# The image: shipped from the control machine (no registry needed: how an
+# air-gapped deploy works). Only when the server lacks this exact image.
+- name: Look up the API image on the control machine
+  ansible.builtin.command: docker image inspect --format '{{ "{{" }}.Id{{ "}}" }}' {{ app_backend_image }}
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: app_local_image
+  changed_when: false
+
+- name: Look up the API image on the server
+  community.docker.docker_image_info:
+    name: "{{ app_backend_image }}"
+  register: app_remote_image
+
+- name: Ship the image if the server's differs
+  when: app_remote_image.images | map(attribute='Id') | list != [app_local_image.stdout]
+  block:
+    - name: Export it on the control machine
+      ansible.builtin.command: docker save --output {{ app_archive_dir }}/radshift-backend.tar {{ app_backend_image }}
+      delegate_to: localhost
+      become: false
+      run_once: true
+      changed_when: true
+
+    - name: Copy it over
+      ansible.builtin.copy:
+        src: "{{ app_archive_dir }}/radshift-backend.tar"
+        dest: "{{ app_dir }}/radshift-backend.tar"
+        mode: "0600"
+
+    - name: Load it
+      community.docker.docker_image_load:
+        path: "{{ app_dir }}/radshift-backend.tar"
+      notify: Recreate the app
+
+    - name: Remove the server's archive
+      ansible.builtin.file:
+        path: "{{ app_dir }}/radshift-backend.tar"
+        state: absent
+
+    - name: Remove the control machine's archive
+      ansible.builtin.file:
+        path: "{{ app_archive_dir }}/radshift-backend.tar"
+        state: absent
+      delegate_to: localhost
+      become: false
+      run_once: true
+
+- name: Start the app
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_dir }}"
+    state: present
+    wait: true
+    wait_timeout: 180
+
+- name: Check it answers and reaches its database
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ app_api_port }}/health"
+    return_content: true
+  register: app_health
+  retries: 30
+  delay: 3
+  until: app_health.status == 200
+  changed_when: false

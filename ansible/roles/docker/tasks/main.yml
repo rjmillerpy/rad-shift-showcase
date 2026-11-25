@@ -1,0 +1,49 @@
+---
+- name: Download Docker's apt signing key
+  ansible.builtin.get_url:
+    url: "{{ docker_gpg_url }}"
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Read the key's fingerprint
+  ansible.builtin.command: gpg --show-keys --with-colons /etc/apt/keyrings/docker.asc
+  register: docker_key
+  changed_when: false
+
+- name: Refuse a key that isn't Docker's
+  ansible.builtin.assert:
+    that: "('fpr:::::::::' ~ docker_gpg_fingerprint ~ ':') in docker_key.stdout"
+    fail_msg: "/etc/apt/keyrings/docker.asc is not the key with fingerprint {{ docker_gpg_fingerprint }}"
+    quiet: true
+
+- name: Add Docker's apt repository
+  ansible.builtin.template:
+    src: docker.sources.j2
+    dest: /etc/apt/sources.list.d/docker.sources
+    mode: "0644"
+  register: docker_repo
+
+- name: Install Docker Engine and the Compose plugin
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: present
+    update_cache: "{{ docker_repo is changed }}"
+
+- name: Configure the engine (log rotation)
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: "{{ {'log-driver': 'json-file', 'log-opts': {'max-size': docker_log_max_size, 'max-file': docker_log_max_files | string}} | to_nice_json }}\n"
+    mode: "0644"
+  notify: Restart docker
+
+- name: Start Docker, and at boot
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Let the deploy user run containers (root-equivalent, like the docker group anywhere)
+  ansible.builtin.user:
+    name: "{{ base_deploy_user }}"
+    groups: docker
+    append: true

@@ -1,0 +1,8 @@
+---
+base_packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - python3-requests  # what the community.docker modules talk to the engine with
+  - unattended-upgrades  # security updates without a person
+base_deploy_user: deploy

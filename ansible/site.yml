@@ -1,0 +1,12 @@
+# Provision a server and deploy rad-shift on it (roadmap item 38):
+#
+#   ansible-playbook site.yml           (from ansible/; test.sh runs it against the local target)
+#
+# Idempotent: a second run changes nothing (test.sh checks for changed=0).
+- name: Provision and deploy rad-shift
+  hosts: app_servers
+  become: true
+  roles:
+    - base    # packages, the deploy user, SSH hardening
+    - docker  # Docker Engine from Docker's own repository
+    - app     # the API and its database, with Docker Compose

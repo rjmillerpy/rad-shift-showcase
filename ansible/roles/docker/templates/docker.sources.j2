@@ -1,0 +1,7 @@
+# Managed by Ansible (ansible/roles/docker).
+Types: deb
+URIs: https://download.docker.com/linux/debian
+Suites: {{ ansible_facts['distribution_release'] }}
+Components: stable
+Architectures: {{ 'amd64' if ansible_facts['architecture'] == 'x86_64' else ansible_facts['architecture'] }}
+Signed-By: /etc/apt/keyrings/docker.asc

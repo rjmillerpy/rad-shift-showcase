@@ -1,0 +1,9 @@
+---
+app_dir: /opt/radshift
+# The API image, built on the control machine (scripts/kind_cluster.sh builds
+# this one: no scraping browsers, ~1.1 GB). Copied over only when the server
+# doesn't already have this exact image, by ID.
+app_backend_image: radshift-backend:local
+app_postgres_image: postgres:16
+app_api_port: 5000
+app_archive_dir: "{{ lookup('ansible.builtin.env', 'TMPDIR') | default('/tmp', true) }}"

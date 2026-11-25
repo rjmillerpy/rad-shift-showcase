@@ -206,3 +206,7 @@ caddy-root.crt
 # gitlab-ci-local: its working folder and the local CI/CD variables (ci/gitlab/)
 /.gitlab-ci-local/
 /ci/gitlab/variables.yml
+
+# Ansible: keys, vault password, known hosts, installed collections (ansible/)
+/ansible/.secrets/
+/ansible/collections/

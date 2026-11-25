@@ -1,0 +1,8 @@
+---
+- name: Recreate the app
+  community.docker.docker_compose_v2:
+    project_src: "{{ app_dir }}"
+    state: present
+    recreate: always
+    wait: true
+    wait_timeout: 180
