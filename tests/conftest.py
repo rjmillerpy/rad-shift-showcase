@@ -8,6 +8,7 @@ Shared fixtures for the rad-shift test suite.
 * S3 calls are globally mocked so no network traffic escapes
 """
 
+import importlib.util
 import json
 import os
 import time
@@ -43,6 +44,13 @@ os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = ""
 # publishing (tests that need them start them with their own fakes).
 os.environ["MEDIA_RESULTS_QUEUE_URL"] = ""
 os.environ["KAFKA_BOOTSTRAP_SERVERS"] = ""
+
+# tests/analytics/ imports pyspark, an opt-in dependency group
+# (`uv sync --group spark`); without it, skip collecting them instead of
+# failing on the import. CI installs the group for its Spark step.
+if importlib.util.find_spec("pyspark") is None:
+    collect_ignore = ["analytics"]
+
 
 # ---------------------------------------------------------------------------
 # SQLite in-memory engine using StaticPool so every connection shares the

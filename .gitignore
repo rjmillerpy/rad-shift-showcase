@@ -196,3 +196,6 @@ caddy-root.crt
 # Self-hosted SonarQube (item 19): admin password, and the scanner work dir
 .sonarqube-local
 .scannerwork/
+
+# Spark job output (analytics/, item 31)
+/data/

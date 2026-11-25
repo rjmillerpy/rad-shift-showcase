@@ -61,6 +61,11 @@ dev = [
     "bandit[toml]==1.9.4",
     "moto[ssm]==5.2.5",
 ]
+# Batch analytics with Spark (analytics/, roadmap item 31): ~450 MB and a
+# JVM, so opt-in: `uv sync --group spark`. Not in the API image.
+spark = [
+    "pyspark==4.3.0",
+]
 # The end-to-end suite only drives a browser and reads the DB, so it installs
 # without the app: `uv sync --only-group e2e` (e2e/run.sh, integration.yml).
 e2e = [
@@ -96,11 +101,12 @@ markers = [
     "perf: timing-sensitive; CI runs these serially, after the parallel run",
     "kafka: needs Docker (starts a real Kafka broker); run with `pytest -m kafka`",
     "helm: renders deploy/helm/ with the helm CLI; run with `pytest -m helm`",
+    "spark: needs the spark group, Java 17+ and Docker; run with `uv run --group spark pytest -m spark`",
 ]
-# The kafka tests start a broker in Docker and the helm tests need the helm
-# CLI, so they run on request (CI runs each in a step or job of its own). A
+# The kafka tests start a broker in Docker, the helm tests need the helm
+# CLI and the spark tests a JVM, so they run on request (CI runs each in a step or job of its own). A
 # -m on the command line replaces this one.
-addopts = "-m 'not kafka and not helm'"
+addopts = "-m 'not kafka and not helm and not spark'"
 filterwarnings = [
     "error",
     # Suppress third-party library warnings we cannot fix
@@ -115,6 +121,7 @@ filterwarnings = [
 
 [tool.coverage.run]
 source = [
+    "analytics",
     "app",
     "lambdas",
 ]
@@ -180,6 +187,12 @@ plugins = ["pydantic.mypy"]
 ignore_missing_imports = true
 warn_unused_ignores = true
 warn_redundant_casts = true
+
+# pyspark is an opt-in group (`uv sync --group spark`): with it installed
+# mypy reads its own type hints; without it, the import is unchecked, not an error.
+[[tool.mypy.overrides]]
+module = ["pyspark", "pyspark.*"]
+ignore_missing_imports = true
 
 # Ratchet: modules with known type debt, almost all from old-style SQLAlchemy
 # `Column(...)` models that mypy reads as Column[...] instead of str/int.

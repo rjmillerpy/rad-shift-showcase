@@ -82,6 +82,14 @@ jobs:
       - name: Pytest (Kafka)
         run: pytest -q -m kafka --cov --cov-append --cov-report=
 
+      # The Spark job (analytics/, item 31) on a local Spark and a real
+      # Postgres in Docker. pyspark is an opt-in group (~450 MB); the
+      # runner's Java 17 runs it.
+      - name: Pytest (Spark)
+        run: |
+          uv sync --locked --group spark
+          pytest -q -m spark --cov --cov-append --cov-report=
+
       # Timing assertions run alone, so parallel workers can't skew them.
       # --cov-append adds to the parallel run's data; the 95% floor
       # (fail_under in pyproject.toml) is checked on the combined total.
