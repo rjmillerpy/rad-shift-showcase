@@ -46,3 +46,8 @@ ENGAGEMENT_SOURCES: dict[str, tuple[str, str, str | None]] = {
     "shares": ("post_shares", "post_id", "timestamp"),
     "reposts": ("reposts", "original_post_id", "unix_timestamp"),
 }
+
+# A snapshot records the totals as they are when it runs, so it can only be
+# taken for today, or yesterday (a daily run for yesterday's interval runs
+# just after midnight). An older date would file today's totals under it.
+MAX_SNAPSHOT_LAG_DAYS = 1

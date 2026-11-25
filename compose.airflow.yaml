@@ -1,0 +1,75 @@
+# Airflow, scheduling the daily Spark job (roadmap item 34). Free, local:
+#
+#   docker compose up -d                                   # the app stack first (its database)
+#   docker compose -f compose.airflow.yaml up -d --build
+#   open http://localhost:8090                             # user admin; password in the logs:
+#   docker compose -f compose.airflow.yaml logs airflow | grep -i password
+#
+# Its own project, beside the app's: Airflow keeps its metadata in its own
+# Postgres, and reaches the app's database over the app stack's network.
+# See orchestration/README.md.
+
+name: radshift-airflow
+
+services:
+  airflow-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow-local
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # api-server, scheduler, DAG processor and triggerer in one container
+  # (`airflow standalone`), with the LocalExecutor: tasks run as processes
+  # here. A real deployment runs each as its own service (the official Helm
+  # chart), with Celery or Kubernetes executors for the tasks.
+  airflow:
+    build:
+      context: .
+      dockerfile: orchestration/Dockerfile
+      target: runtime
+    command: standalone
+    restart: unless-stopped
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow-local@airflow-db/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      # Two Spark tasks at once at most: each is a JVM of its own.
+      AIRFLOW__CORE__PARALLELISM: "2"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: admin:admin
+      # The app's database, as the connection the DAG reads (radshift_db).
+      AIRFLOW_CONN_RADSHIFT_DB: postgresql://radshift:${RADSHIFT_DB_PASSWORD:-radshift-local}@db:5432/radshift
+    volumes:
+      - ./orchestration/dags:/opt/airflow/dags:ro
+      - lake:/opt/airflow/lake
+    ports:
+      - "127.0.0.1:8090:8080"  # 8080 belongs to another local stack
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+    networks: [default, radshift]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/v2/monitor/health"]
+      start_period: 120s
+      start_interval: 5s
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  airflow-db:
+  lake:
+
+networks:
+  # The app stack's network (compose.yaml, project radshift), where its
+  # Postgres answers as db:5432.
+  radshift:
+    name: radshift_default
+    external: true

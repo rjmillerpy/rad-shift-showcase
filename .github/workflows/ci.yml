@@ -186,6 +186,34 @@ jobs:
         if: steps.changed.outputs.run == 'true'
         run: observability/check.sh
 
+  # The Airflow DAG (orchestration/, item 34), loaded by Airflow's own
+  # DagBag inside the Airflow image. The image is 2.2 GB, so this runs only
+  # when the DAG, its image or the job it runs changed.
+  orchestration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0 # to diff against the previous head
+
+      - name: Did the DAG or the job change?
+        id: changed
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BEFORE" HEAD -- orchestration analytics compose.airflow.yaml; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: DAG tests
+        if: steps.changed.outputs.run == 'true'
+        run: orchestration/check.sh
+
   # The Helm chart (deploy/, item 30): lint, validate every rendering
   # against the Kubernetes schemas, run its tests. Offline: no cluster.
   kubernetes:

@@ -23,8 +23,8 @@ day: the snapshot records totals each day instead, and the day-to-day
 difference is the day's engagement (a periodic snapshot fact table).
 
 Load: Parquet. The snapshots are partitioned by snapshot date, and a rerun
-replaces only the dates it writes (dynamic partition overwrite), so a day can
-be re-run safely.
+replaces exactly its own date (deleted, then written), so a day can be re-run
+safely and other days are left alone.
 """
 
 import argparse
@@ -54,6 +54,7 @@ from analytics.constants import (
     JDBC_DRIVER_URL,
     JDBC_DRIVER_VERSION,
     JDBC_FETCH_SIZE,
+    MAX_SNAPSHOT_LAG_DAYS,
     POST_SNAPSHOT,
     POSTS_READ_PARTITIONS,
     SNAPSHOT_PARTITION,
@@ -72,6 +73,10 @@ WEIGHTS = {
 }
 POST_COLUMNS = ["id", "user_id", "unix_timestamp", "is_draft", "is_reply", "parent_post_id",
                 *ENGAGEMENT_SOURCES]  # fmt: skip
+
+
+class StaleSnapshotError(Exception):
+    """A snapshot asked for a date it can't truthfully describe."""
 
 
 class DriverChecksumError(Exception):
@@ -116,9 +121,6 @@ def spark_session(driver_jar: Path, master: str = "local[*]") -> SparkSession:
         SparkSession.builder.appName(APP_NAME)
         .master(master)
         .config("spark.jars", str(driver_jar))
-        # Rewrite only the partitions this run produces (the default,
-        # "static", would delete every other day's data on overwrite).
-        .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
         .config("spark.sql.session.timeZone", "UTC")
         # Small data: a few shuffle partitions, not the default 200.
         .config("spark.sql.shuffle.partitions", "8")
@@ -256,12 +258,28 @@ def transform(sources: Sources, snapshot_date: datetime.date) -> Outputs:
     return Outputs(post_snapshot, author_daily, activity_daily, counter_drift)
 
 
-def load(outputs: Outputs, root: str) -> None:
+def _delete(spark: SparkSession, path: str) -> None:
+    """Delete a folder through Hadoop's FileSystem: the same call for a local path or s3a://."""
+    jvm_path = spark.sparkContext._jvm.org.apache.hadoop.fs.Path(path)  # type: ignore[union-attr]
+    hadoop_conf = spark.sparkContext._jsc.hadoopConfiguration()  # type: ignore[union-attr]
+    jvm_path.getFileSystem(hadoop_conf).delete(jvm_path, True)
+
+
+def load(outputs: Outputs, root: str, snapshot_date: datetime.date) -> None:
     """Parquet under root, one folder per dataset.
 
     The snapshots are partitioned by date, one file per date: repartitioning
     by the partition column first stops each task from writing its own small
     file into every partition (16 files for one day of drift, measured).
+
+    A rerun replaces its date: that partition is deleted, then written.
+    Dynamic partition overwrite alone isn't enough: it replaces only the
+    partitions the new output has, so a rerun with no drift rows left the
+    earlier run's drift in place, and the quality gate kept failing on a
+    fixed counter (found in the Airflow drill). Delete-then-write isn't atomic
+    (a crash in between leaves the date missing, which the gate reports);
+    Delta Lake's replaceWhere is.
+
     activity_daily is recomputed in full each run and is small (one row a
     day), so it is a single file: partitioned by day it was 91 files of one
     row each, rewritten every run.
@@ -273,16 +291,36 @@ def load(outputs: Outputs, root: str) -> None:
         (outputs.counter_drift, COUNTER_DRIFT),
     ]
     for frame, name in snapshots:
-        (frame.repartition(SNAPSHOT_PARTITION).write.mode("overwrite")
+        _delete(
+            frame.sparkSession, f"{root}/{name}/{SNAPSHOT_PARTITION}={snapshot_date.isoformat()}"
+        )
+        (frame.repartition(SNAPSHOT_PARTITION).write.mode("append")
          .partitionBy(SNAPSHOT_PARTITION).parquet(f"{root}/{name}"))  # fmt: skip
     outputs.activity_daily.coalesce(1).write.mode("overwrite").parquet(f"{root}/{ACTIVITY_DAILY}")
+
+
+def check_snapshot_date(snapshot_date: datetime.date, today: datetime.date) -> None:
+    """Refuse a date the current totals don't describe (a backfill, a late retry).
+
+    activity_daily can be recomputed for any day, but the snapshots can't: the
+    database only knows today's totals. Backfilling them would rewrite history
+    with today's numbers, so it has to be asked for (--allow-stale).
+    """
+    lag = (today - snapshot_date).days
+    if lag > MAX_SNAPSHOT_LAG_DAYS:
+        raise StaleSnapshotError(
+            f"snapshot for {snapshot_date} is {lag} days old: it would record "
+            f"{today}'s totals under it (pass --allow-stale to do it anyway)"
+        )
+    if lag < 0:
+        raise StaleSnapshotError(f"snapshot for {snapshot_date} is in the future")
 
 
 def run(
     spark: SparkSession, options: dict[str, str], root: str, snapshot_date: datetime.date
 ) -> Outputs:
     outputs = transform(extract(spark, options), snapshot_date)
-    load(outputs, root)
+    load(outputs, root, snapshot_date)
     drifted = outputs.counter_drift.count()
     if drifted:
         logger.warning("%d stored engagement counters disagree with their rows", drifted)
@@ -297,8 +335,12 @@ def main(
                         default=datetime.datetime.now(datetime.UTC).date(),
                         help="snapshot date (UTC), default today")  # fmt: skip
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT), help="folder or s3a:// URL")
+    parser.add_argument("--allow-stale", action="store_true",
+                        help="snapshot an old date anyway (files today's totals under it)")  # fmt: skip
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
+    if not args.allow_stale:
+        check_snapshot_date(args.date, datetime.datetime.now(datetime.UTC).date())
 
     spark = spark_session(jdbc_driver())
     try:

@@ -44,10 +44,18 @@ SHA-256 pinned in `constants.py`; nothing is fetched by Spark's `--packages` at 
     warning when there are any.
   - A test seeds a database with mismatched counters and checks that the job finds them all.
 - **Idempotent reruns.**
-  - `spark.sql.sources.partitionOverwriteMode=dynamic`: rewriting a day replaces only that
-    day's partition.
-  - Spark's default ("static") overwrite would delete every other day.
-  - A test runs the job three times over two dates and checks that nothing is duplicated or lost.
+  - A rerun deletes its date's partition in each snapshot, then writes it.
+  - Spark's `partitionOverwriteMode=dynamic` was the first version, and the Airflow drill showed
+    why it's not enough:
+    - it replaces only the partitions the new output contains;
+    - a clean rerun has **no** drift rows, so it wrote no drift partition;
+    - the earlier run's drift survived, and the quality gate kept failing on a counter that had
+      been fixed.
+  - A test now reruns the same day without drift and expects none.
+  - Delete-then-write isn't atomic: a crash in between leaves the date missing. The gate reports
+    that ("did the job run?") instead of passing. Delta Lake's `replaceWhere` does it atomically.
+  - Old dates are refused (`--allow-stale` overrides). A snapshot holds today's totals, so a
+    backfill would file them under an old date.
 - **Small files.**
   - The first version partitioned `activity_daily` by day, which wrote 91 one-row files
     (1.1 MB) and rewrote them all every run.
@@ -84,5 +92,5 @@ Measured on a laptop: Spark `local[*]` on 16 cores, with a throwaway Postgres in
   objects (S3 has no real rename).
 - **Databricks (item 32)** would run the same transform in a notebook, write the tables as Delta
   instead of Parquet (ACID, time travel, `MERGE`), and read from cloud storage instead of JDBC.
-- **Airflow or Dagster (item 34)** would run the job daily, with retries and backfills. A
-  backfill is just `--date` for each missing day, which is safe because of the dynamic overwrite.
+- **Airflow (item 34)** runs it daily, followed by the `analytics.quality` gate
+  (`orchestration/README.md`).

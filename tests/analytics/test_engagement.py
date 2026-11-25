@@ -23,6 +23,8 @@ from analytics.engagement import (
     WEIGHTS,
     DriverChecksumError,
     Sources,
+    StaleSnapshotError,
+    check_snapshot_date,
     jdbc_driver,
     jdbc_options,
     run,
@@ -147,6 +149,22 @@ class TestCounterDrift:
 
         assert drift == [{"post_id": 2, "counter": "likes", "stored": 5, "counted": 1,
                           "snapshot_date": DAY}]  # fmt: skip
+
+
+class TestSnapshotDate:
+    """The snapshot holds today's totals, so only today or yesterday is honest."""
+
+    def test_today_and_yesterday_are_fine(self):
+        check_snapshot_date(DAY, today=DAY)
+        check_snapshot_date(DAY - datetime.timedelta(days=1), today=DAY)
+
+    def test_an_older_date_is_refused(self):
+        with pytest.raises(StaleSnapshotError, match="--allow-stale"):
+            check_snapshot_date(DAY - datetime.timedelta(days=2), today=DAY)
+
+    def test_a_future_date_is_refused(self):
+        with pytest.raises(StaleSnapshotError, match="future"):
+            check_snapshot_date(DAY + datetime.timedelta(days=1), today=DAY)
 
 
 class TestJdbcDriver:
