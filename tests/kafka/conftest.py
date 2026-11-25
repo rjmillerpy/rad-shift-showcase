@@ -71,7 +71,10 @@ def bootstrap_servers() -> Iterator[str]:
         ensure_topics(AdminClient({"bootstrap.servers": servers}))
         yield servers
     finally:
-        docker("rm", "-f", name)
+        # -v: the image declares three anonymous volumes (data, secrets,
+        # config); `rm -f` alone leaves them behind, ~1 GB of preallocated
+        # log segments per session.
+        docker("rm", "-f", "-v", name)
 
 
 @pytest.fixture()
