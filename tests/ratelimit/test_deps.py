@@ -9,7 +9,11 @@ from app.ratelimit.deps import policy_for
 
 @pytest.fixture()
 def limits_on(monkeypatch):
+    """Limits on, and the clock held mid-window: a test making 60 requests
+    could otherwise cross a minute boundary, where the window resets (the
+    first version was flaky exactly so, caught by a slower CI run)."""
     monkeypatch.setenv("RATE_LIMITS_ENABLED", "true")
+    monkeypatch.setattr("app.ratelimit.deps.time.time", lambda: 1_800_000_030.0)
 
 
 @pytest.mark.parametrize(
