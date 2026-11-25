@@ -9,6 +9,8 @@ metadata:
   labels:
     {{- include "rad-shift.labels" $c | nindent 4 }}
 spec:
+  # Old ReplicaSets kept for `kubectl rollout undo` (default 10).
+  revisionHistoryLimit: 3
   replicas: {{ .Values.aggregator.replicas }}
   selector:
     matchLabels:

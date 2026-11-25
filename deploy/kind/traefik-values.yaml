@@ -11,3 +11,12 @@ ports:
 service:
   spec:
     type: NodePort  # kind has no cloud load balancer
+providers:
+  kubernetesIngress:
+    # Report an address on each Ingress. A NodePort Service has none to copy,
+    # and without one Argo CD's health check waits on the Ingress forever
+    # ("Progressing"). 127.0.0.1 is where kind publishes it.
+    publishedService:
+      enabled: false
+    ingressEndpoint:
+      ip: 127.0.0.1

@@ -121,6 +121,10 @@ class TestHardening:
                 assert security["readOnlyRootFilesystem"] is True, each["name"]
                 assert security["capabilities"] == {"drop": ["ALL"]}, each["name"]
 
+    def test_deployments_keep_a_few_revisions_to_roll_back_to(self, default):
+        for deployment in (doc for doc in default if doc["kind"] == "Deployment"):
+            assert deployment["spec"]["revisionHistoryLimit"] == 3, deployment["metadata"]["name"]
+
     def test_every_container_has_requests_and_a_memory_limit(self, default):
         for workload in workloads(default):
             spec = pod(workload)

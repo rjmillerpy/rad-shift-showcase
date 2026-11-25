@@ -6,6 +6,8 @@ metadata:
   labels:
     {{- include "rad-shift.labels" $c | nindent 4 }}
 spec:
+  # Old ReplicaSets kept for `kubectl rollout undo` (default 10).
+  revisionHistoryLimit: 3
   {{- /* With the HPA on, it owns the count: a replicas here would reset it on every upgrade or sync. */}}
   {{- if not .Values.backend.autoscaling.enabled }}
   replicas: {{ .Values.backend.replicas }}
