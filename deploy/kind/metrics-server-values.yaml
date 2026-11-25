@@ -1,0 +1,5 @@
+# metrics-server (chart 3.14.0) supplies the CPU numbers the HPA scales on.
+# kind's kubelets use self-signed certificates, so skip verifying them; a
+# real cluster's kubelets have proper ones and this flag stays off.
+args:
+  - --kubelet-insecure-tls

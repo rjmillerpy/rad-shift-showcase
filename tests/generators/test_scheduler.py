@@ -255,3 +255,28 @@ class TestSchedulerLoop:
             with caplog.at_level("ERROR"):
                 _scheduler_loop(stop)
         assert any("Scheduler failed to query" in rec.getMessage() for rec in caplog.records)
+
+
+class TestSchedulerEnabled:
+    def test_on_by_default(self, monkeypatch):
+        monkeypatch.delenv("GENERATOR_SCHEDULER_ENABLED", raising=False)
+        assert scheduler_mod.scheduler_enabled()
+
+    def test_off_when_false_in_any_case(self, monkeypatch):
+        monkeypatch.setenv("GENERATOR_SCHEDULER_ENABLED", "False")
+        assert not scheduler_mod.scheduler_enabled()
+
+    def test_anything_else_keeps_it_on(self, monkeypatch):
+        monkeypatch.setenv("GENERATOR_SCHEDULER_ENABLED", "yes")
+        assert scheduler_mod.scheduler_enabled()
+
+
+class TestIsRunning:
+    def test_follows_start_and_stop(self):
+        assert not scheduler_mod.is_running()
+        start_scheduler()
+        try:
+            assert scheduler_mod.is_running()
+        finally:
+            stop_scheduler()
+        assert not scheduler_mod.is_running()

@@ -1,0 +1,10 @@
+# rad-shift on Kubernetes (roadmap item 30). Runs free on a local kind
+# cluster (deploy/README.md); nothing here needs EKS or any paid service.
+apiVersion: v2
+name: rad-shift
+description: The rad-shift API, frontend, workers, Postgres and Kafka on Kubernetes
+type: application
+# The chart's own version: bump it when the templates change.
+version: 0.1.0
+# What it deploys; the images are tagged per build (values.yaml).
+appVersion: "1.0.0"

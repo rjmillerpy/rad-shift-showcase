@@ -22,7 +22,7 @@ from .common.db import create_tables, engine
 from .engagement import producer as post_events
 from .flags import service as flags
 from .follow.views import follow_router
-from .generators.scheduler import start_scheduler, stop_scheduler
+from .generators.scheduler import scheduler_enabled, start_scheduler, stop_scheduler
 from .generators.views import generator_router
 from .health.views import health_router
 from .logs.constants import REQUEST_ID_HEADER
@@ -72,8 +72,9 @@ _ROUTERS: list[tuple] = [
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     flags.configure()
-    start_scheduler()
-    logger.info("Generator scheduler started")
+    if scheduler_enabled():
+        start_scheduler()
+        logger.info("Generator scheduler started")
     if media_results.start():
         logger.info("Polling the media results queue")
     if post_events.start():

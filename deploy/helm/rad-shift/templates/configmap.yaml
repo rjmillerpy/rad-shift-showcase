@@ -1,0 +1,21 @@
+{{- /* The app's non-secret settings, shared by the API, worker and aggregator. */ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rad-shift.name" (dict "root" . "component" "config") }}
+  labels:
+    {{- include "rad-shift.labels" (dict "root" . "component" "config") | nindent 4 }}
+data:
+  DB_HOST: {{ include "rad-shift.dbHost" . | quote }}
+  DB_PORT: "5432"
+  DB_USER: {{ .Values.postgres.user | quote }}
+  DB_NAME: {{ .Values.postgres.database | quote }}
+  ALLOWED_ORIGINS: {{ .Values.publicUrl | quote }}
+  APP_URL: {{ .Values.publicUrl | quote }}
+  WIDGET_SERVER_EXECUTION_ENABLED: "false"
+  {{- if .Values.kafka.enabled }}
+  KAFKA_BOOTSTRAP_SERVERS: {{ printf "%s:9092" (include "rad-shift.name" (dict "root" . "component" "kafka")) | quote }}
+  {{- end }}
+  {{- range $key, $value := .Values.backend.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

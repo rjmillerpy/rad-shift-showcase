@@ -1,0 +1,74 @@
+{{- $c := dict "root" . "component" "frontend" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rad-shift.name" $c }}
+  labels:
+    {{- include "rad-shift.labels" $c | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicas }}
+  selector:
+    matchLabels:
+      {{- include "rad-shift.selectorLabels" $c | nindent 6 }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "rad-shift.labels" $c | nindent 8 }}
+    spec:
+      securityContext:
+        # The distroless image's nonroot user.
+        {{- include "rad-shift.podSecurity" (dict "uid" 65532) | nindent 8 }}
+      containers:
+        - name: web
+          image: {{ include "rad-shift.image" .Values.frontend.image }}
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          env:
+            # Server-side code calls the API inside the cluster.
+            - name: API_INTERNAL_URL
+              value: {{ printf "http://%s:5000" (include "rad-shift.name" (dict "root" . "component" "backend")) | quote }}
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet: {path: /api/health, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /api/health, port: http}
+            periodSeconds: 10
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          securityContext:
+            {{- include "rad-shift.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            # Next.js writes its image and fetch caches here.
+            - {name: next-cache, mountPath: /app/.next/cache}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rad-shift.name" $c }}
+  labels:
+    {{- include "rad-shift.labels" $c | nindent 4 }}
+spec:
+  selector:
+    {{- include "rad-shift.selectorLabels" $c | nindent 4 }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

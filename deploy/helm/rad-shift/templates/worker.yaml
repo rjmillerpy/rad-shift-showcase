@@ -1,0 +1,46 @@
+{{- if .Values.worker.enabled -}}
+{{- $c := dict "root" . "component" "worker" -}}
+# The generator scheduler: exactly one pod. Recreate stops the old pod before
+# starting the new one, so a rollout never runs two schedulers at once.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rad-shift.name" $c }}
+  labels:
+    {{- include "rad-shift.labels" $c | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "rad-shift.selectorLabels" $c | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rad-shift.labels" $c | nindent 8 }}
+      annotations:
+        {{- include "rad-shift.configChecksum" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- include "rad-shift.podSecurity" (dict "uid" 1000) | nindent 8 }}
+      initContainers:
+        {{- include "rad-shift.waitForPostgres" . | nindent 8 }}
+      containers:
+        - name: scheduler
+          image: {{ include "rad-shift.image" .Values.backend.image }}
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          # Not the entrypoint: the API's pods run the migrations. It exits
+          # non-zero if its scheduler thread dies, and Kubernetes restarts it.
+          command: ["python", "-m", "app.generators.worker"]
+          {{- include "rad-shift.appEnvFrom" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          securityContext:
+            {{- include "rad-shift.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

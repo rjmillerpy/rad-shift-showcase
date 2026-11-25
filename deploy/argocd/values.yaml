@@ -1,0 +1,15 @@
+# Argo CD (chart 10.17.1, Argo CD v3.6.1), trimmed for one laptop: no HA,
+# no Dex (logins are the built-in admin), no notifications or ApplicationSets.
+dex:
+  enabled: false
+notifications:
+  enabled: false
+applicationSet:
+  enabled: false
+configs:
+  params:
+    # The UI is reached with kubectl port-forward on localhost.
+    server.insecure: true
+  cm:
+    # Poll Git every minute (default 3), so a push shows up quickly.
+    timeout.reconciliation: 60s

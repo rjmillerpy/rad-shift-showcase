@@ -1,0 +1,31 @@
+{{- if .Values.ingress.enabled -}}
+{{- $c := dict "root" . "component" "ingress" -}}
+# One entry point, routed by host: the site and the API it calls.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "rad-shift.fullname" . }}
+  labels:
+    {{- include "rad-shift.labels" $c | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.frontendHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "rad-shift.name" (dict "root" . "component" "frontend") }}
+                port: {name: http}
+    - host: {{ .Values.ingress.apiHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "rad-shift.name" (dict "root" . "component" "backend") }}
+                port: {name: http}
+{{- end }}

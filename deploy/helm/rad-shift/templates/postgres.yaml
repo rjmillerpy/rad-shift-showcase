@@ -1,0 +1,87 @@
+{{- if .Values.postgres.enabled -}}
+{{- $c := dict "root" . "component" "postgres" -}}
+# One Postgres pod with its own volume. A StatefulSet, not a Deployment: the
+# pod keeps its name and its volume across restarts and reschedules.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "rad-shift.name" $c }}
+  labels:
+    {{- include "rad-shift.labels" $c | nindent 4 }}
+spec:
+  serviceName: {{ include "rad-shift.name" $c }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "rad-shift.selectorLabels" $c | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rad-shift.labels" $c | nindent 8 }}
+    spec:
+      securityContext:
+        # The image's postgres user, so no root step is needed to chown the volume.
+        {{- include "rad-shift.podSecurity" (dict "uid" 999) | nindent 8 }}
+      containers:
+        - name: postgres
+          image: {{ include "rad-shift.image" .Values.postgres.image }}
+          env:
+            - {name: POSTGRES_USER, value: {{ .Values.postgres.user | quote }}}
+            - {name: POSTGRES_DB, value: {{ .Values.postgres.database | quote }}}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: {name: {{ .Values.secretName }}, key: DB_PASSWORD}
+            # A subdirectory: the volume's root may hold lost+found.
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+          securityContext:
+            {{- include "rad-shift.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: run, mountPath: /var/run/postgresql}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  # Kept when the release is deleted: `helm uninstall` must not drop the data.
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.postgres.storage }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rad-shift.name" $c }}
+  labels:
+    {{- include "rad-shift.labels" $c | nindent 4 }}
+spec:
+  selector:
+    {{- include "rad-shift.selectorLabels" $c | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+{{- end }}

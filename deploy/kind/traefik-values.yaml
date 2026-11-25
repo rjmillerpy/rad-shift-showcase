@@ -1,0 +1,13 @@
+# Traefik as the cluster's ingress controller (chart 42.3.1, Traefik v3.7).
+# Not ingress-nginx: that project was retired in March 2026.
+ingressClass:
+  isDefaultClass: true
+ports:
+  web:
+    nodePort: 30080  # kind publishes it as localhost:8088 (cluster.yaml)
+  websecure:
+    expose:
+      default: false  # plain HTTP on a laptop; TLS terminates here in a real cluster
+service:
+  spec:
+    type: NodePort  # kind has no cloud load balancer

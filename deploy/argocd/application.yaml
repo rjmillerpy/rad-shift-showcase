@@ -1,0 +1,34 @@
+# GitOps (roadmap item 30): Argo CD keeps the cluster matching the chart in
+# Git. Change deploy/helm/ on main, push, and within a minute or so Argo CD
+# applies it; change the cluster by hand and it puts it back (selfHeal).
+#
+# The source is the public mirror (rad-shift-showcase), which open_core/
+# publish.py updates on every push to main: Argo CD reads it without any
+# Git credentials in the cluster. The private repo would need a read-only
+# deploy key stored as an Argo CD repository secret.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rad-shift
+  namespace: argocd
+  # Deleting the Application deletes what it deployed (not the volumes:
+  # the StatefulSets retain their claims).
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/rjmillerpy/rad-shift-showcase.git
+    targetRevision: main
+    path: deploy/helm/rad-shift
+    helm:
+      releaseName: rad-shift
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: rad-shift
+  syncPolicy:
+    automated:
+      prune: true     # a resource removed from Git is removed from the cluster
+      selfHeal: true  # a change made by hand is reverted
+    syncOptions:
+      - CreateNamespace=true

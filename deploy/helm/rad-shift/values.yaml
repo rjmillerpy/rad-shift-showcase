@@ -1,0 +1,96 @@
+# Defaults: the local kind cluster (deploy/kind/, scripts/kind_cluster.sh).
+# A real cluster overrides the hosts, images and storage (deploy/README.md).
+
+# Created outside the chart, never in Git (scripts/kind_cluster.sh makes one
+# with random values). Required keys: DB_PASSWORD, JWT_SECRET. Any other key
+# (ANTHROPIC_API_KEY, RESEND_API_KEY, ...) reaches the API as a variable.
+# On AWS this would be synced from Secrets Manager by External Secrets.
+secretName: rad-shift
+
+# Where users reach the app: the frontend and the API on their own hosts.
+# *.localhost resolves to this machine; kind maps host port 8088 to the
+# ingress controller (deploy/kind/cluster.yaml).
+publicUrl: http://rad-shift.localhost:8088
+ingress:
+  enabled: true
+  className: traefik
+  frontendHost: rad-shift.localhost
+  apiHost: api.rad-shift.localhost
+
+# The API. Scaled by the HPA between minReplicas and maxReplicas.
+backend:
+  image:
+    repository: radshift-backend
+    tag: local  # built and loaded into kind by scripts/kind_cluster.sh
+    pullPolicy: IfNotPresent
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  # Used only when autoscaling is off.
+  replicas: 2
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 768Mi}
+  # Extra non-secret settings, e.g. LOG_LEVEL: debug.
+  env: {}
+
+# The generator scheduler, one pod for the whole cluster (app/generators/worker.py).
+# Off: the API runs it in-process, once per replica (so keep replicas at 1).
+worker:
+  enabled: true
+  resources:
+    requests: {cpu: 20m, memory: 128Mi}
+    limits: {memory: 512Mi}
+
+# Post events into trending scores (app/engagement/aggregator.py). Needs kafka.
+aggregator:
+  enabled: true
+  # Up to the topic's 3 partitions; a 4th replica would sit idle.
+  replicas: 1
+  resources:
+    requests: {cpu: 20m, memory: 128Mi}
+    limits: {memory: 384Mi}
+
+frontend:
+  image:
+    repository: radshift-frontend
+    # Built with NEXT_PUBLIC_API_URL=http://api.rad-shift.localhost:8088:
+    # the browser calls the API directly, and Next.js bakes that in.
+    tag: local
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 384Mi}
+
+# In-cluster Postgres, one pod with a volume. A real cluster uses a managed
+# database (RDS) instead: postgres.enabled=false and postgres.host=<endpoint>.
+postgres:
+  enabled: true
+  host: ""  # used when enabled is false
+  image:
+    repository: postgres
+    tag: "16"
+  user: radshift
+  database: radshift
+  storage: 1Gi
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+
+# One Kafka broker in KRaft mode, as in compose.yaml. Off: nothing is
+# published, the aggregator is skipped and /posts/trending stays empty.
+kafka:
+  enabled: true
+  image:
+    repository: apache/kafka
+    tag: 4.4.0
+  # Fixed, so the volume's data always matches (22 base64 characters).
+  clusterId: cmFkc2hpZnQtbG9jYWwtMQ
+  heap: 512m
+  storage: 1Gi
+  resources:
+    requests: {cpu: 100m, memory: 640Mi}
+    limits: {memory: 1Gi}

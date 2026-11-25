@@ -95,10 +95,12 @@ testpaths = [
 markers = [
     "perf: timing-sensitive; CI runs these serially, after the parallel run",
     "kafka: needs Docker (starts a real Kafka broker); run with `pytest -m kafka`",
+    "helm: renders deploy/helm/ with the helm CLI; run with `pytest -m helm`",
 ]
-# The kafka tests start a broker in Docker, so they run on request (CI runs
-# them in a step of their own). A -m on the command line replaces this one.
-addopts = "-m 'not kafka'"
+# The kafka tests start a broker in Docker and the helm tests need the helm
+# CLI, so they run on request (CI runs each in a step or job of its own). A
+# -m on the command line replaces this one.
+addopts = "-m 'not kafka and not helm'"
 filterwarnings = [
     "error",
     # Suppress third-party library warnings we cannot fix

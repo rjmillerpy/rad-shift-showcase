@@ -1,0 +1,8 @@
+rad-shift is starting. Watch it with:
+
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }} -w
+
+{{- if .Values.ingress.enabled }}
+
+Then open {{ .Values.publicUrl }} (the API is on http://{{ .Values.ingress.apiHost }}:8088).
+{{- end }}

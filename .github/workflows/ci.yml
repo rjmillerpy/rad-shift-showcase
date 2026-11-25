@@ -75,7 +75,7 @@ jobs:
       # -n auto: one worker per CPU (2 on GitHub's private-repo runners). Each
       # worker is its own process with its own in-memory database.
       - name: Pytest (parallel)
-        run: pytest -q -n auto -m "not perf and not kafka" --cov --cov-report=
+        run: pytest -q -n auto -m "not perf and not kafka and not helm" --cov --cov-report=
 
       # The post-event path against a real Kafka broker (tests/kafka/, item
       # 29b): the image compose.yaml runs, started in Docker by the tests.
@@ -177,6 +177,27 @@ jobs:
       - name: Validate configs and test alert rules
         if: steps.changed.outputs.run == 'true'
         run: observability/check.sh
+
+  # The Helm chart (deploy/, item 30): lint, validate every rendering
+  # against the Kubernetes schemas, run its tests. Offline: no cluster.
+  kubernetes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.9"
+          python-version: "3.12"
+          enable-cache: true
+          activate-environment: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Lint, validate and test the chart
+        run: deploy/check.sh
 
   aws-identity:
     # Proves the keyless path end to end: GitHub's OIDC token is exchanged for

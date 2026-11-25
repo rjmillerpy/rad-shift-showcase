@@ -204,6 +204,24 @@ class TestLifespan:
             asyncio.run(_run())
 
 
+class TestLifespanWithoutScheduler:
+    """GENERATOR_SCHEDULER_ENABLED=false: the API serves, a worker schedules."""
+
+    def test_the_scheduler_does_not_start(self, monkeypatch):
+        import asyncio
+
+        from app.generators import scheduler
+        from app.main import _lifespan
+
+        monkeypatch.setenv("GENERATOR_SCHEDULER_ENABLED", "false")
+
+        async def _run():
+            async with _lifespan(MagicMock()):
+                assert not scheduler.is_running()
+
+        asyncio.run(_run())
+
+
 class TestRoutersManifest:
     def test_manifest_prefixes_start_with_slash(self):
         from app.main import _ROUTERS

@@ -6,6 +6,7 @@ last_run_at. Runs each due source in sequence with error isolation.
 """
 
 import logging
+import os
 import threading
 import time
 
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.common.db import SessionLocal
 from app.generators.constants import (
+    SCHEDULER_ENABLED_ENV_VAR,
     SCHEDULER_JOIN_TIMEOUT_SECONDS,
     SCHEDULER_MAX_SOURCES_PER_TICK,
     SCHEDULER_POLL_INTERVAL_SECONDS,
@@ -98,6 +100,15 @@ def _scheduler_loop(stop_event: threading.Event) -> None:
 
 _stop_event: threading.Event | None = None
 _thread: threading.Thread | None = None
+
+
+def scheduler_enabled() -> bool:
+    """On unless GENERATOR_SCHEDULER_ENABLED is "false" (any case)."""
+    return os.getenv(SCHEDULER_ENABLED_ENV_VAR, "true").lower() != "false"
+
+
+def is_running() -> bool:
+    return _thread is not None and _thread.is_alive()
 
 
 def start_scheduler() -> None:

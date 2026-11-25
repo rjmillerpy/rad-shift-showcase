@@ -1,0 +1,55 @@
+{{- if and .Values.aggregator.enabled .Values.kafka.enabled -}}
+{{- $c := dict "root" . "component" "aggregator" -}}
+# Post events into trending scores: its own consumer group, up to one
+# replica per partition.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rad-shift.name" $c }}
+  labels:
+    {{- include "rad-shift.labels" $c | nindent 4 }}
+spec:
+  replicas: {{ .Values.aggregator.replicas }}
+  selector:
+    matchLabels:
+      {{- include "rad-shift.selectorLabels" $c | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rad-shift.labels" $c | nindent 8 }}
+      annotations:
+        {{- include "rad-shift.configChecksum" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- include "rad-shift.podSecurity" (dict "uid" 1000) | nindent 8 }}
+      initContainers:
+        {{- include "rad-shift.waitForPostgres" . | nindent 8 }}
+      containers:
+        - name: aggregator
+          image: {{ include "rad-shift.image" .Values.backend.image }}
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          command: ["python", "-m", "app.engagement.aggregator"]
+          {{- include "rad-shift.appEnvFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: 9102
+          # The metrics endpoint answers once the consumer runs. Broker
+          # outages are retried inside the process, so they don't fail this.
+          startupProbe:
+            httpGet: {path: /metrics, port: metrics}
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: {path: /metrics, port: metrics}
+            periodSeconds: 15
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.aggregator.resources | nindent 12 }}
+          securityContext:
+            {{- include "rad-shift.containerSecurity" . | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

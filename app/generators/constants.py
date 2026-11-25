@@ -28,6 +28,13 @@ ANALYZER_API_TIMEOUT_SECONDS = 30
 SCHEDULER_POLL_INTERVAL_SECONDS = 60
 SCHEDULER_MAX_SOURCES_PER_TICK = 5
 SCHEDULER_JOIN_TIMEOUT_SECONDS = 10
+# The API starts the scheduler unless this is "false" (any case). One
+# scheduler per database: every API replica running its own would run each
+# due source once per replica. Kubernetes (deploy/helm/) turns it off in the
+# scaled API and runs `python -m app.generators.worker` as a single pod.
+SCHEDULER_ENABLED_ENV_VAR = "GENERATOR_SCHEDULER_ENABLED"
+# How often the worker checks its scheduler thread is still alive.
+WORKER_CHECK_SECONDS = 30
 
 # API pagination bounds for the admin generator surface.
 DEFAULT_LIST_LIMIT = 20
