@@ -83,3 +83,17 @@ def verification_token_for(username: str) -> str:
         conn.close()
     assert row and row[0], f"no pending verification token for {username}"
     return row[0]
+
+
+def approve_widget(widget_id: int) -> None:
+    """Approve a widget in the database: stands in for an admin's review."""
+    conn = psycopg2.connect(DB_DSN)
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "UPDATE widgets SET status = 'approved', published_at = 1 WHERE id = %s",
+                (widget_id,),
+            )
+            assert cur.rowcount == 1, f"no widget {widget_id}"
+    finally:
+        conn.close()

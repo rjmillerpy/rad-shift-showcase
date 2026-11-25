@@ -2,9 +2,10 @@
 
 import contextlib
 import os
+from pathlib import Path as FilePath
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
@@ -14,7 +15,9 @@ from app.common.deps import optional_user, require_admin
 from app.common.utils import get_user, require_active
 from app.flags.constants import Flag
 from app.flags.service import is_enabled
+from app.widgets import storage
 from app.widgets.compiler import compile_multi_panel, compile_to_html
+from app.widgets.constants import WIDGET_STORAGE_KEY_PATTERN
 from app.widgets.executor import execute_python, execute_sql
 from app.widgets.schema import (
     ExecutionResponse,
@@ -40,6 +43,10 @@ from app.widgets.schema import (
     WidgetReviewsResponse,
     WidgetSaveResponse,
     WidgetStatusResponse,
+    WidgetStorageItemsResponse,
+    WidgetStorageSetRequest,
+    WidgetStorageStatusResponse,
+    WidgetStorageValueResponse,
     WidgetSubmitRequest,
     WidgetTemplatesResponse,
     WidgetUpdateRequest,
@@ -97,6 +104,34 @@ def browse_widgets(
         db, status="approved", category=category, offset=offset, limit=limit
     )
     return WidgetPageResponse.model_validate({"widgets": widgets, "has_more": has_more})
+
+
+# The SDK every rendered widget loads (radshift.storage). Read once at import.
+WIDGET_SDK_JS = (FilePath(__file__).parent / "sdk.js").read_text()
+SDK_CACHE_SECONDS = 300
+WIDGET_SDK_TAG = '<script src="/widgets/sdk.js"></script>'
+StorageKey = Path(pattern=WIDGET_STORAGE_KEY_PATTERN)
+
+
+class JavaScriptResponse(Response):
+    media_type = "application/javascript"
+
+
+@widget_router.get("/sdk.js", response_class=JavaScriptResponse)
+def widget_sdk() -> JavaScriptResponse:
+    """The widget SDK; declared before /{widget_id} so the path isn't read as an id."""
+    return JavaScriptResponse(
+        WIDGET_SDK_JS, headers={"Cache-Control": f"public, max-age={SDK_CACHE_SECONDS}"}
+    )
+
+
+def with_sdk(html: str) -> str:
+    """Load the SDK first thing in the widget's document, before its own scripts."""
+    head = html.find("<head>")
+    if head == -1:
+        return WIDGET_SDK_TAG + html
+    at = head + len("<head>")
+    return html[:at] + WIDGET_SDK_TAG + html[at:]
 
 
 @widget_router.get("/templates")
@@ -434,4 +469,51 @@ def render_widget(widget_id: int, db: Session = Depends(get_db)) -> HTMLResponse
                 widget.get("language", "html"),
                 css=widget.get("css"),
             )
-    return HTMLResponse(html)
+    return HTMLResponse(with_sdk(html))
+
+
+# -- Storage (radshift.storage in a widget; app/widgets/storage.py) ----------
+
+
+@widget_router.get("/{widget_id}/storage")
+def list_storage_view(
+    widget_id: int, Authorize: AuthJWT = Depends(), db: Session = Depends(get_db)
+) -> WidgetStorageItemsResponse:
+    user = _require_user(Authorize, db)
+    return WidgetStorageItemsResponse(items=storage.list_items(user, widget_id, db))
+
+
+@widget_router.get("/{widget_id}/storage/{key}")
+def get_storage_view(
+    widget_id: int,
+    key: str = StorageKey,
+    Authorize: AuthJWT = Depends(),
+    db: Session = Depends(get_db),
+) -> WidgetStorageValueResponse:
+    user = _require_user(Authorize, db)
+    return WidgetStorageValueResponse(key=key, value=storage.get_item(user, widget_id, key, db))
+
+
+@widget_router.put("/{widget_id}/storage/{key}")
+def set_storage_view(
+    widget_id: int,
+    payload: WidgetStorageSetRequest,
+    key: str = StorageKey,
+    Authorize: AuthJWT = Depends(),
+    db: Session = Depends(get_db),
+) -> WidgetStorageStatusResponse:
+    user = _require_user(Authorize, db)
+    storage.set_item(user, widget_id, key, payload.value, db)
+    return WidgetStorageStatusResponse(status="saved", key=key)
+
+
+@widget_router.delete("/{widget_id}/storage/{key}")
+def remove_storage_view(
+    widget_id: int,
+    key: str = StorageKey,
+    Authorize: AuthJWT = Depends(),
+    db: Session = Depends(get_db),
+) -> WidgetStorageStatusResponse:
+    user = _require_user(Authorize, db)
+    storage.remove_item(user, widget_id, key, db)
+    return WidgetStorageStatusResponse(status="removed", key=key)

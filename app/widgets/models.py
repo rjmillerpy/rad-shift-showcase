@@ -176,3 +176,23 @@ class WidgetReport(Base):
     widget_id: Mapped[int] = mapped_column(ForeignKey("widgets.id"), index=True)
     reason: Mapped[str] = mapped_column(String(500))
     created_at: Mapped[int] = mapped_column(Integer)
+
+
+class WidgetData(Base):
+    """A value a widget saved for one user (radshift.storage in the widget).
+
+    Keyed by (user, widget, key): a widget sees only its own keys, for the
+    signed-in user, and never another widget's (app/widgets/storage.py).
+    """
+
+    __tablename__ = "widget_data"
+    __table_args__ = (
+        UniqueConstraint("user_id", "widget_id", "key", name="unique_widget_data_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    widget_id: Mapped[int] = mapped_column(ForeignKey("widgets.id"), index=True)
+    key: Mapped[str] = mapped_column(String(64))
+    value: Mapped[str] = mapped_column(Text)  # JSON
+    updated_at: Mapped[int] = mapped_column(Integer)

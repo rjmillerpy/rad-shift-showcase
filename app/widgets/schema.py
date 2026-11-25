@@ -287,3 +287,23 @@ class TelemetryAnalysis(FrozenModel):
 class TelemetryResponse(FrozenModel):
     analysis: TelemetryAnalysis
     widget_id: int
+
+
+class WidgetStorageSetRequest(BaseModel):
+    """Any JSON value (null included); size is checked when it's saved."""
+
+    value: Any
+
+
+class WidgetStorageItemsResponse(FrozenModel):
+    items: dict[str, Any]
+
+
+class WidgetStorageValueResponse(FrozenModel):
+    key: str
+    value: Any
+
+
+class WidgetStorageStatusResponse(FrozenModel):
+    status: str
+    key: str

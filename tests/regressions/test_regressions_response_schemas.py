@@ -36,6 +36,7 @@ _NON_JSON = {
     ("GET", "/posts/chronicle/stream"): "text/event-stream",
     ("GET", "/widgets/{widget_id}/render"): "text/html",
     ("GET", "/widgets/{widget_id}/sandbox"): "text/html",
+    ("GET", "/widgets/sdk.js"): "application/javascript",
 }
 
 
