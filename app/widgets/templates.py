@@ -21,6 +21,7 @@ from app.widgets.template_code import (
     TOOL_CODE,
     VIZ_CODE,
 )
+from app.widgets.template_code_starters import STATE_STORE_CODE, WEBGL_CODE
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +145,26 @@ BUILTIN_TEMPLATES: list[dict] = [
         "description": "Form submission handler simulating PHP $_POST processing.",
         "icon_emoji": "\U0001f418",
         "starter_code": PHP_CODE,
+        "starter_css": "",
+    },
+    {
+        "name": "State Store (Redux-style)",
+        "category": "tool",
+        "language": "html",
+        "description": "A counter run by a Redux-style store (reducer, dispatch, subscribe) "
+        "that saves its state with radshift.storage, so it survives a reload.",
+        "icon_emoji": "\U0001f5c3",
+        "starter_code": STATE_STORE_CODE,
+        "starter_css": "",
+    },
+    {
+        "name": "WebGL Starter",
+        "category": "visualization",
+        "language": "html",
+        "description": "A spinning triangle drawn with raw WebGL: shaders, a vertex buffer, "
+        "an animation loop. No library needed.",
+        "icon_emoji": "\U0001f53a",
+        "starter_code": WEBGL_CODE,
         "starter_css": "",
     },
 ]
