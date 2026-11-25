@@ -4,11 +4,21 @@ import logging
 import time
 
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.widgets.compiler import compile_to_html
-from app.widgets.models import Widget, WidgetInstall, WidgetReview, WidgetTemplate
+from app.widgets.constants import WIDGET_REPORTS_FOR_REVIEW, WIDGET_REVIEWS_SHOWN
+from app.widgets.models import (
+    Widget,
+    WidgetInstall,
+    WidgetLike,
+    WidgetReport,
+    WidgetReview,
+    WidgetSave,
+    WidgetTemplate,
+)
 from app.widgets.security import scan_widget_code
 
 logger = logging.getLogger(__name__)
@@ -91,11 +101,31 @@ _WIDGET_FIELDS = [
 ]
 
 
-def _widget_to_dict(w: Widget) -> dict:
+def _widget_to_dict(w: Widget, rating_avg: float | None = None) -> dict:
     """Serialize a Widget ORM instance to a plain dict."""
     d = {f: getattr(w, f) for f in _WIDGET_FIELDS}
     d["author_username"] = w.author.username if w.author else None
+    d["rating_avg"] = rating_avg
     return d
+
+
+def _rating_averages(widget_ids: list[int], db: Session) -> dict[int, float]:
+    """Average star rating per widget, in one query (widgets with none are absent)."""
+    if not widget_ids:
+        return {}
+    rows = (
+        db.query(WidgetReview.widget_id, func.avg(WidgetReview.rating))
+        .filter(WidgetReview.widget_id.in_(widget_ids))
+        .group_by(WidgetReview.widget_id)
+        .all()
+    )
+    return {widget_id: round(float(avg), 2) for widget_id, avg in rows}
+
+
+def _to_dicts(widgets: list[Widget], db: Session) -> list[dict]:
+    """Serialize widgets with their average ratings."""
+    ratings = _rating_averages([w.id for w in widgets], db)
+    return [_widget_to_dict(w, ratings.get(w.id)) for w in widgets]
 
 
 def compile_widget(widget: Widget) -> str:
@@ -216,7 +246,7 @@ def delete_widget(user: User, widget_id: int, db: Session) -> dict:
 def get_widget(widget_id: int, db: Session) -> dict | None:
     """Get a single widget by ID, or None."""
     widget = db.query(Widget).filter(Widget.id == widget_id).first()
-    return _widget_to_dict(widget) if widget else None
+    return _to_dicts([widget], db)[0] if widget else None
 
 
 def list_widgets(
@@ -235,7 +265,7 @@ def list_widgets(
     query = query.order_by(Widget.install_count.desc(), Widget.created_at.desc())
     widgets = query.offset(offset).limit(limit + 1).all()
     has_more = len(widgets) > limit
-    return [_widget_to_dict(w) for w in widgets[:limit]], has_more
+    return _to_dicts(widgets[:limit], db), has_more
 
 
 def list_my_widgets(user: User, db: Session) -> list[dict]:
@@ -246,7 +276,7 @@ def list_my_widgets(user: User, db: Session) -> list[dict]:
         .order_by(Widget.created_at.desc())
         .all()
     )
-    return [_widget_to_dict(w) for w in widgets]
+    return _to_dicts(widgets, db)
 
 
 def submit_for_review(user: User, widget_id: int, db: Session) -> dict:
@@ -361,7 +391,7 @@ def get_installed_widgets(user: User, db: Session) -> list[dict]:
     if not wids:
         return []
     wmap = {w.id: w for w in db.query(Widget).filter(Widget.id.in_(wids)).all()}
-    return [_widget_to_dict(wmap[wid]) for wid in wids if wid in wmap]
+    return _to_dicts([wmap[wid] for wid in wids if wid in wmap], db)
 
 
 def rate_widget(user: User, widget_id: int, rating: int, comment: str | None, db: Session) -> dict:
@@ -381,11 +411,17 @@ def rate_widget(user: User, widget_id: int, rating: int, comment: str | None, db
 
     if existing:
         existing.rating = rating
-        existing.comment = comment
+        if comment is not None:  # stars alone keep the review's text
+            existing.comment = comment
         existing.created_at = now
         db.commit()
         logger.info("User %s updated review for widget %d", user.username, widget_id)
-        return {"status": "updated", "widget_id": widget_id, "rating": rating, "comment": comment}
+        return {
+            "status": "updated",
+            "widget_id": widget_id,
+            "rating": rating,
+            "comment": existing.comment,
+        }
 
     db.add(
         WidgetReview(
@@ -395,3 +431,126 @@ def rate_widget(user: User, widget_id: int, rating: int, comment: str | None, db
     db.commit()
     logger.info("User %s rated widget %d (%d stars)", user.username, widget_id, rating)
     return {"status": "created", "widget_id": widget_id, "rating": rating, "comment": comment}
+
+
+def _approved_widget(widget_id: int, db: Session) -> Widget:
+    widget = db.query(Widget).filter(Widget.id == widget_id, Widget.status == "approved").first()
+    if not widget:
+        raise HTTPException(status_code=404, detail="Widget not found or not approved")
+    return widget
+
+
+def set_like(user: User, widget_id: int, liked: bool, db: Session) -> dict:
+    """Like or unlike; idempotent, so the count can't drift on a double click."""
+    widget = _approved_widget(widget_id, db)
+    row = db.query(WidgetLike).filter_by(user_id=user.id, widget_id=widget_id).first()
+    if liked and row is None:
+        db.add(WidgetLike(user_id=user.id, widget_id=widget_id, created_at=int(time.time())))
+        widget.likes = (widget.likes or 0) + 1
+    elif not liked and row is not None:
+        db.delete(row)
+        widget.likes = max(0, (widget.likes or 0) - 1)
+    db.commit()
+    return {"widget_id": widget_id, "liked": liked, "likes": widget.likes}
+
+
+def set_save(user: User, widget_id: int, saved: bool, db: Session) -> dict:
+    """Save or unsave a widget; idempotent like set_like."""
+    widget = _approved_widget(widget_id, db)
+    row = db.query(WidgetSave).filter_by(user_id=user.id, widget_id=widget_id).first()
+    if saved and row is None:
+        db.add(WidgetSave(user_id=user.id, widget_id=widget_id, created_at=int(time.time())))
+        widget.saves = (widget.saves or 0) + 1
+    elif not saved and row is not None:
+        db.delete(row)
+        widget.saves = max(0, (widget.saves or 0) - 1)
+    db.commit()
+    return {"widget_id": widget_id, "saved": saved, "saves": widget.saves}
+
+
+def _review_to_dict(review: WidgetReview, username: str) -> dict:
+    return {
+        "id": review.id,
+        "username": username,
+        "rating": review.rating,
+        "text": review.comment,
+        "created_at": review.created_at,
+    }
+
+
+def list_reviews(widget_id: int, db: Session) -> list[dict]:
+    """Written reviews (stars-only ratings have no text), newest first."""
+    _approved_widget(widget_id, db)
+    rows = (
+        db.query(WidgetReview, User.username)
+        .join(User, WidgetReview.user_id == User.id)
+        .filter(WidgetReview.widget_id == widget_id, WidgetReview.comment.is_not(None))
+        .order_by(WidgetReview.created_at.desc(), WidgetReview.id.desc())
+        .limit(WIDGET_REVIEWS_SHOWN)
+        .all()
+    )
+    return [_review_to_dict(review, username) for review, username in rows]
+
+
+def post_review(user: User, widget_id: int, text: str, rating: int | None, db: Session) -> dict:
+    """Write (or rewrite) your review. Stars come with it, or from your earlier rating."""
+    if rating is None:
+        existing = db.query(WidgetReview).filter_by(user_id=user.id, widget_id=widget_id).first()
+        if existing is None:
+            raise HTTPException(status_code=400, detail="Give the widget a star rating first")
+        rating = existing.rating
+    rate_widget(user, widget_id, rating, text, db)
+    review = db.query(WidgetReview).filter_by(user_id=user.id, widget_id=widget_id).one()
+    return _review_to_dict(review, user.username)
+
+
+def report_widget(user: User, widget_id: int, reason: str, db: Session) -> dict:
+    """Report a widget. The third user to report one sends it back to admin review.
+
+    One report per user and widget: reporting again updates the reason.
+    Back under review, the widget leaves the store until an admin approves it
+    again (the same queue new widgets wait in), so a harmful widget can't keep
+    spreading while it waits.
+    """
+    widget = _approved_widget(widget_id, db)
+    if widget.author_id == user.id:
+        raise HTTPException(status_code=400, detail="You can't report your own widget")
+
+    row = db.query(WidgetReport).filter_by(reporter_user_id=user.id, widget_id=widget_id).first()
+    if row is not None:
+        row.reason = reason
+        db.commit()
+        return {"status": "updated", "widget_id": widget_id, "under_review": False}
+
+    db.add(
+        WidgetReport(
+            reporter_user_id=user.id,
+            widget_id=widget_id,
+            reason=reason,
+            created_at=int(time.time()),
+        )
+    )
+    db.flush()
+    reports = db.query(func.count(WidgetReport.id)).filter_by(widget_id=widget_id).scalar() or 0
+    under_review = reports >= WIDGET_REPORTS_FOR_REVIEW
+    if under_review:
+        widget.status = "pending"
+        widget.review_notes = f"Sent back for review after {reports} user reports."
+        widget.updated_at = int(time.time())
+        logger.warning("Widget %d sent back for review after %d reports", widget_id, reports)
+    db.commit()
+    return {"status": "ok", "widget_id": widget_id, "under_review": under_review}
+
+
+def viewer_state(user: User | None, widget_id: int, db: Session) -> dict:
+    """What the widget page shows about you: installed, liked, saved, your stars."""
+    if user is None:
+        return {"installed": False, "liked": False, "saved": False, "my_rating": None}
+    mine = {"user_id": user.id, "widget_id": widget_id}
+    review = db.query(WidgetReview).filter_by(**mine).first()
+    return {
+        "installed": db.query(WidgetInstall).filter_by(**mine).first() is not None,
+        "liked": db.query(WidgetLike).filter_by(**mine).first() is not None,
+        "saved": db.query(WidgetSave).filter_by(**mine).first() is not None,
+        "my_rating": review.rating if review else None,
+    }

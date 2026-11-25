@@ -15,7 +15,7 @@ class TestWidgetBrowse:
         w.status = "approved"
         db_session.commit()
 
-        resp = client.get("/widgets/browse")
+        resp = client.get("/widgets")
         assert resp.status_code == 200
         titles = [w["title"] for w in resp.json()["widgets"]]
         assert "Approved" in titles
@@ -40,14 +40,14 @@ class TestWidgetBrowse:
         w.status = "approved"
         db_session.commit()
 
-        resp = client.get(f"/widgets/browse?category={category}")
+        resp = client.get(f"/widgets?category={category}")
         assert resp.status_code == 200
         widgets = resp.json()["widgets"]
         assert len(widgets) >= 1
         assert all(w["category"] == category for w in widgets)
 
     def test_browse_invalid_category(self, client):
-        resp = client.get("/widgets/browse?category=invalid")
+        resp = client.get("/widgets?category=invalid")
         assert resp.status_code == 400
 
     def test_browse_pagination(self, client, create_user, auth_header, db_session):
@@ -59,24 +59,24 @@ class TestWidgetBrowse:
         db_session.commit()
 
         # First page
-        resp = client.get("/widgets/browse?limit=3&offset=0")
+        resp = client.get("/widgets?limit=3&offset=0")
         assert resp.status_code == 200
         body = resp.json()
         assert len(body["widgets"]) == 3
         assert body["has_more"] is True
 
         # Second page
-        resp2 = client.get("/widgets/browse?limit=3&offset=3")
+        resp2 = client.get("/widgets?limit=3&offset=3")
         body2 = resp2.json()
         assert len(body2["widgets"]) == 2
         assert body2["has_more"] is False
 
     def test_browse_no_auth_required(self, client):
-        resp = client.get("/widgets/browse")
+        resp = client.get("/widgets")
         assert resp.status_code == 200
 
     def test_browse_empty_result(self, client):
-        resp = client.get("/widgets/browse")
+        resp = client.get("/widgets")
         assert resp.status_code == 200
         assert resp.json()["widgets"] == []
         assert resp.json()["has_more"] is False

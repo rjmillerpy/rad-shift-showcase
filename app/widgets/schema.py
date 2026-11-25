@@ -3,6 +3,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.common.schema import FrozenModel
+from app.widgets.constants import MAX_WIDGET_REPORT_REASON_LENGTH, MAX_WIDGET_REVIEW_LENGTH
 
 # Upper bound on sandbox telemetry events accepted in one request. A sandbox
 # session produces at most a few hundred; this stops an unbounded payload.
@@ -71,9 +72,20 @@ class WidgetReviewRequest(BaseModel):
 
 
 class WidgetRatingRequest(BaseModel):
-    widget_id: int
+    """Stars for the widget in the path; stars alone keep any review text."""
+
     rating: int = Field(..., ge=1, le=5)
-    comment: str | None = None
+
+
+class WidgetReviewPostRequest(BaseModel):
+    """A written review; `rating` may be left out once you've rated the widget."""
+
+    text: str = Field(..., min_length=1, max_length=MAX_WIDGET_REVIEW_LENGTH)
+    rating: int | None = Field(None, ge=1, le=5)
+
+
+class WidgetReportRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=MAX_WIDGET_REPORT_REASON_LENGTH)
 
 
 class WidgetExecuteRequest(BaseModel):
@@ -143,10 +155,21 @@ class WidgetOut(FrozenModel):
     created_at: int
     updated_at: int | None
     published_at: int | None
+    rating_avg: float | None = None
 
 
 class WidgetResponse(FrozenModel):
     widget: WidgetOut
+
+
+class WidgetDetailResponse(FrozenModel):
+    """A widget plus what its page shows about the viewer (all off when anonymous)."""
+
+    widget: WidgetOut
+    installed: bool
+    liked: bool
+    saved: bool
+    my_rating: int | None
 
 
 class WidgetListResponse(FrozenModel):
@@ -176,6 +199,41 @@ class WidgetRatingResponse(FrozenModel):
     widget_id: int
     rating: int
     comment: str | None
+
+
+class WidgetLikeResponse(FrozenModel):
+    widget_id: int
+    liked: bool
+    likes: int
+
+
+class WidgetSaveResponse(FrozenModel):
+    widget_id: int
+    saved: bool
+    saves: int
+
+
+class WidgetReviewOut(FrozenModel):
+    id: int
+    username: str
+    rating: int
+    text: str
+    created_at: int
+
+
+class WidgetReviewsResponse(FrozenModel):
+    reviews: list[WidgetReviewOut]
+
+
+class WidgetReviewPostResponse(FrozenModel):
+    review: WidgetReviewOut
+
+
+class WidgetReportResponse(FrozenModel):
+    status: str
+    widget_id: int
+    # True when this report sent the widget back to admin review.
+    under_review: bool
 
 
 class WidgetTemplate(FrozenModel):

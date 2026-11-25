@@ -6,6 +6,8 @@ from pydantic import ValidationError
 from app.widgets.schema import (
     WidgetCreateRequest,
     WidgetRatingRequest,
+    WidgetReportRequest,
+    WidgetReviewPostRequest,
     WidgetReviewRequest,
     WidgetSubmitRequest,
     WidgetUpdateRequest,
@@ -307,10 +309,11 @@ class TestWidgetReviewRequestSchema:
 
 
 class TestWidgetRatingRequestSchema:
+    """Stars only: the widget is in the path, review text has its own route."""
+
     @pytest.mark.parametrize("rating", [1, 2, 3, 4, 5])
     def test_valid_ratings(self, rating):
-        req = WidgetRatingRequest(widget_id=1, rating=rating)
-        assert req.rating == rating
+        assert WidgetRatingRequest(rating=rating).rating == rating
 
     @pytest.mark.parametrize(
         "rating",
@@ -319,20 +322,26 @@ class TestWidgetRatingRequestSchema:
     )
     def test_invalid_ratings(self, rating):
         with pytest.raises(ValidationError):
-            WidgetRatingRequest(widget_id=1, rating=rating)
-
-    def test_comment_optional(self):
-        req = WidgetRatingRequest(widget_id=1, rating=5)
-        assert req.comment is None
-
-    def test_comment_provided(self):
-        req = WidgetRatingRequest(widget_id=1, rating=5, comment="Great!")
-        assert req.comment == "Great!"
-
-    def test_missing_widget_id(self):
-        with pytest.raises(ValidationError):
-            WidgetRatingRequest(rating=5)
+            WidgetRatingRequest(rating=rating)
 
     def test_missing_rating(self):
         with pytest.raises(ValidationError):
-            WidgetRatingRequest(widget_id=1)
+            WidgetRatingRequest()
+
+
+class TestWidgetReviewPostRequestSchema:
+    def test_text_with_or_without_stars(self):
+        assert WidgetReviewPostRequest(text="Nice").rating is None
+        assert WidgetReviewPostRequest(text="Nice", rating=4).rating == 4
+
+    @pytest.mark.parametrize("text", ["", "x" * 2001], ids=["empty", "too-long"])
+    def test_text_is_bounded(self, text):
+        with pytest.raises(ValidationError):
+            WidgetReviewPostRequest(text=text)
+
+
+class TestWidgetReportRequestSchema:
+    @pytest.mark.parametrize("reason", ["", "x" * 501], ids=["empty", "too-long"])
+    def test_reason_is_bounded(self, reason):
+        with pytest.raises(ValidationError):
+            WidgetReportRequest(reason=reason)

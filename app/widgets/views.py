@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.auth.models import User
 from app.common.auth_jwt import AuthJWT, AuthJWTException
 from app.common.db import get_db
-from app.common.deps import require_admin
+from app.common.deps import optional_user, require_admin
 from app.common.utils import get_user, require_active
 from app.flags.constants import Flag
 from app.flags.service import is_enabled
@@ -22,16 +22,23 @@ from app.widgets.schema import (
     TelemetryRequest,
     TelemetryResponse,
     WidgetCreateRequest,
+    WidgetDetailResponse,
     WidgetExecuteInstalledRequest,
     WidgetExecuteRequest,
     WidgetInstalledResponse,
+    WidgetLikeResponse,
     WidgetListResponse,
     WidgetOut,
     WidgetPageResponse,
     WidgetRatingRequest,
     WidgetRatingResponse,
-    WidgetResponse,
+    WidgetReportRequest,
+    WidgetReportResponse,
+    WidgetReviewPostRequest,
+    WidgetReviewPostResponse,
     WidgetReviewRequest,
+    WidgetReviewsResponse,
+    WidgetSaveResponse,
     WidgetStatusResponse,
     WidgetSubmitRequest,
     WidgetTemplatesResponse,
@@ -44,12 +51,18 @@ from app.widgets.service import (
     get_widget,
     install_widget,
     list_my_widgets,
+    list_reviews,
     list_widgets,
+    post_review,
     rate_widget,
+    report_widget,
     review_widget,
+    set_like,
+    set_save,
     submit_for_review,
     uninstall_widget,
     update_widget,
+    viewer_state,
 )
 from app.widgets.templates import BUILTIN_TEMPLATES
 
@@ -69,7 +82,7 @@ def _require_user(Authorize: AuthJWT, db: Session) -> User:
 # -- Public (optional auth) ------------------------------------------------
 
 
-@widget_router.get("/browse")
+@widget_router.get("")
 def browse_widgets(
     category: str | None = None,
     offset: int = 0,
@@ -108,7 +121,7 @@ def installed_widgets(
     return WidgetListResponse.model_validate({"widgets": get_installed_widgets(user, db)})
 
 
-@widget_router.post("/create")
+@widget_router.post("")
 def create_widget_view(
     payload: WidgetCreateRequest,
     Authorize: AuthJWT = Depends(),
@@ -128,19 +141,80 @@ def submit_widget_view(
     return WidgetOut.model_validate(submit_for_review(user, payload.widget_id, db))
 
 
-@widget_router.post("/rate")
+@widget_router.post("/{widget_id}/rate")
 def rate_widget_view(
+    widget_id: int,
     payload: WidgetRatingRequest,
     Authorize: AuthJWT = Depends(),
     db: Session = Depends(get_db),
 ) -> WidgetRatingResponse:
     user = _require_user(Authorize, db)
     return WidgetRatingResponse.model_validate(
-        rate_widget(user, payload.widget_id, payload.rating, payload.comment, db)
+        rate_widget(user, widget_id, payload.rating, None, db)
     )
 
 
-@widget_router.post("/install/{widget_id}")
+@widget_router.post("/{widget_id}/like")
+def like_widget_view(
+    widget_id: int, Authorize: AuthJWT = Depends(), db: Session = Depends(get_db)
+) -> WidgetLikeResponse:
+    user = _require_user(Authorize, db)
+    return WidgetLikeResponse.model_validate(set_like(user, widget_id, True, db))
+
+
+@widget_router.delete("/{widget_id}/like")
+def unlike_widget_view(
+    widget_id: int, Authorize: AuthJWT = Depends(), db: Session = Depends(get_db)
+) -> WidgetLikeResponse:
+    user = _require_user(Authorize, db)
+    return WidgetLikeResponse.model_validate(set_like(user, widget_id, False, db))
+
+
+@widget_router.post("/{widget_id}/save")
+def save_widget_view(
+    widget_id: int, Authorize: AuthJWT = Depends(), db: Session = Depends(get_db)
+) -> WidgetSaveResponse:
+    user = _require_user(Authorize, db)
+    return WidgetSaveResponse.model_validate(set_save(user, widget_id, True, db))
+
+
+@widget_router.delete("/{widget_id}/save")
+def unsave_widget_view(
+    widget_id: int, Authorize: AuthJWT = Depends(), db: Session = Depends(get_db)
+) -> WidgetSaveResponse:
+    user = _require_user(Authorize, db)
+    return WidgetSaveResponse.model_validate(set_save(user, widget_id, False, db))
+
+
+@widget_router.get("/{widget_id}/reviews")
+def list_reviews_view(widget_id: int, db: Session = Depends(get_db)) -> WidgetReviewsResponse:
+    return WidgetReviewsResponse.model_validate({"reviews": list_reviews(widget_id, db)})
+
+
+@widget_router.post("/{widget_id}/reviews")
+def post_review_view(
+    widget_id: int,
+    payload: WidgetReviewPostRequest,
+    Authorize: AuthJWT = Depends(),
+    db: Session = Depends(get_db),
+) -> WidgetReviewPostResponse:
+    user = _require_user(Authorize, db)
+    review = post_review(user, widget_id, payload.text, payload.rating, db)
+    return WidgetReviewPostResponse.model_validate({"review": review})
+
+
+@widget_router.post("/{widget_id}/report")
+def report_widget_view(
+    widget_id: int,
+    payload: WidgetReportRequest,
+    Authorize: AuthJWT = Depends(),
+    db: Session = Depends(get_db),
+) -> WidgetReportResponse:
+    user = _require_user(Authorize, db)
+    return WidgetReportResponse.model_validate(report_widget(user, widget_id, payload.reason, db))
+
+
+@widget_router.post("/{widget_id}/install")
 def install_widget_view(
     widget_id: int,
     Authorize: AuthJWT = Depends(),
@@ -150,7 +224,7 @@ def install_widget_view(
     return WidgetInstalledResponse.model_validate(install_widget(user, widget_id, db))
 
 
-@widget_router.delete("/install/{widget_id}")
+@widget_router.delete("/{widget_id}/install")
 def uninstall_widget_view(
     widget_id: int,
     Authorize: AuthJWT = Depends(),
@@ -302,16 +376,16 @@ def submit_telemetry(
 @widget_router.get("/{widget_id}")
 def get_widget_view(
     widget_id: int,
-    Authorize: AuthJWT = Depends(),
+    viewer: User | None = Depends(optional_user),
     db: Session = Depends(get_db),
-) -> WidgetResponse:
-    # /{widget_id} is public-read; a malformed token shouldn't block anon access.
-    with contextlib.suppress(AuthJWTException):
-        Authorize.jwt_optional()
+) -> WidgetDetailResponse:
+    """Public read; with a login it also says what you've done with the widget."""
     widget = get_widget(widget_id, db)
     if not widget:
         raise HTTPException(status_code=404, detail="Widget not found")
-    return WidgetResponse.model_validate({"widget": widget})
+    return WidgetDetailResponse.model_validate(
+        {"widget": widget, **viewer_state(viewer, widget_id, db)}
+    )
 
 
 @widget_router.put("/{widget_id}")

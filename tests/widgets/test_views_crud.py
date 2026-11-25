@@ -12,7 +12,7 @@ class TestWidgetCreate:
     def test_create_widget(self, client, create_user, auth_header):
         create_user(username="alice")
         resp = client.post(
-            "/widgets/create",
+            "/widgets",
             json=VALID_WIDGET,
             headers=auth_header("alice"),
         )
@@ -42,7 +42,7 @@ class TestWidgetCreate:
 
         create_user(username="bob")
         resp = client.post(
-            "/widgets/create",
+            "/widgets",
             json={**VALID_WIDGET, "template_id": tpl.id, "icon_emoji": None},
             headers=auth_header("bob"),
         )
@@ -51,7 +51,7 @@ class TestWidgetCreate:
         assert resp.json()["icon_emoji"] == "X"
 
     def test_create_requires_auth(self, client):
-        resp = client.post("/widgets/create", json=VALID_WIDGET)
+        resp = client.post("/widgets", json=VALID_WIDGET)
         assert resp.status_code == 401
 
     @pytest.mark.parametrize(
@@ -81,7 +81,7 @@ class TestWidgetCreate:
         create_user(username="val_user")
         payload = {**VALID_WIDGET, field: value}
         resp = client.post(
-            "/widgets/create",
+            "/widgets",
             json=payload,
             headers=auth_header("val_user"),
         )
@@ -100,7 +100,7 @@ class TestWidgetCreate:
             "resizable": True,
         }
         resp = client.post(
-            "/widgets/create",
+            "/widgets",
             json=payload,
             headers=auth_header("full"),
         )
@@ -116,7 +116,7 @@ class TestWidgetCreate:
         create_user(username="ts_user")
         before = int(time.time())
         resp = client.post(
-            "/widgets/create",
+            "/widgets",
             json=VALID_WIDGET,
             headers=auth_header("ts_user"),
         )

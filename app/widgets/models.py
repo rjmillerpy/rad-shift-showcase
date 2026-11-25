@@ -1,7 +1,17 @@
 """Widget system models."""
 
-from sqlalchemy import JSON, Boolean, Column, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.orm import relationship
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.common.db import Base
 
@@ -91,8 +101,6 @@ class WidgetInstall(Base):
     widget_id = Column(Integer, ForeignKey("widgets.id"), index=True, nullable=False)
     installed_at = Column(Integer, nullable=False)
 
-    from sqlalchemy import UniqueConstraint
-
     __table_args__ = (UniqueConstraint("user_id", "widget_id", name="unique_widget_install"),)
 
 
@@ -107,8 +115,6 @@ class WidgetReview(Base):
     rating = Column(Integer, nullable=False)  # 1-5
     comment = Column(Text, nullable=True)
     created_at = Column(Integer, nullable=False)
-
-    from sqlalchemy import UniqueConstraint
 
     __table_args__ = (UniqueConstraint("user_id", "widget_id", name="unique_widget_review"),)
 
@@ -127,3 +133,46 @@ class WidgetTemplate(Base):
     starter_css = Column(Text, nullable=True)
     starter_config = Column(JSON, nullable=True)
     icon_emoji = Column(String(10), nullable=True)
+
+
+class WidgetLike(Base):
+    """One user's like of a widget: a row per pair, so liking twice is one like."""
+
+    __tablename__ = "widget_likes"
+    __table_args__ = (UniqueConstraint("user_id", "widget_id", name="unique_widget_like"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    widget_id: Mapped[int] = mapped_column(ForeignKey("widgets.id"), index=True)
+    created_at: Mapped[int] = mapped_column(Integer)
+
+
+class WidgetSave(Base):
+    """One user's save (bookmark) of a widget."""
+
+    __tablename__ = "widget_saves"
+    __table_args__ = (UniqueConstraint("user_id", "widget_id", name="unique_widget_save"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    widget_id: Mapped[int] = mapped_column(ForeignKey("widgets.id"), index=True)
+    created_at: Mapped[int] = mapped_column(Integer)
+
+
+class WidgetReport(Base):
+    """A user's report that a widget breaks the rules.
+
+    Enough open reports send the widget back to the admin review queue
+    (app.widgets.service.report_widget).
+    """
+
+    __tablename__ = "widget_reports"
+    __table_args__ = (
+        UniqueConstraint("reporter_user_id", "widget_id", name="unique_widget_report"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    reporter_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    widget_id: Mapped[int] = mapped_column(ForeignKey("widgets.id"), index=True)
+    reason: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[int] = mapped_column(Integer)

@@ -5,7 +5,15 @@ import time
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.widgets.models import Widget, WidgetInstall, WidgetReview, WidgetTemplate
+from app.widgets.models import (
+    Widget,
+    WidgetInstall,
+    WidgetLike,
+    WidgetReport,
+    WidgetReview,
+    WidgetSave,
+    WidgetTemplate,
+)
 
 
 def _make_widget(author_id: int, **overrides) -> Widget:
@@ -79,3 +87,30 @@ class TestWidgetTemplate:
         db_session.commit()
         db_session.refresh(tpl)
         assert tpl.id is not None
+
+
+class TestPerUserRows:
+    """A user likes, saves or reports a widget once: the database enforces it."""
+
+    @pytest.mark.parametrize("model", ["like", "save", "report"])
+    def test_a_second_row_for_the_same_pair_is_refused(self, db_session, create_user, model):
+        user = create_user(username="fan")
+        widget = Widget(author_id=user.id, title="W", category="tool", language="html",
+                        code="<p>", created_at=1)  # fmt: skip
+        db_session.add(widget)
+        db_session.commit()
+
+        def row():
+            if model == "report":
+                return WidgetReport(
+                    reporter_user_id=user.id, widget_id=widget.id, reason="x", created_at=1
+                )
+            cls = WidgetLike if model == "like" else WidgetSave
+            return cls(user_id=user.id, widget_id=widget.id, created_at=1)
+
+        db_session.add(row())
+        db_session.commit()
+        db_session.add(row())
+        with pytest.raises(IntegrityError):
+            db_session.commit()
+        db_session.rollback()

@@ -21,7 +21,7 @@ def _create_widget(client, auth_header, username, **overrides):
     """Create a widget via the API and return the JSON response body."""
     payload = {**VALID_WIDGET, **overrides}
     resp = client.post(
-        "/widgets/create",
+        "/widgets",
         json=payload,
         headers=auth_header(username),
     )
