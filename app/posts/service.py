@@ -39,6 +39,7 @@ def create_post(
     parent_post_id: int | None = None,
     is_draft: bool = False,
     is_reply: bool = False,
+    content_warning: str | None = None,
 ) -> None:
     new_post = PostModel(
         text=text,
@@ -54,6 +55,7 @@ def create_post(
         parent_post_id=parent_post_id,
         is_draft=is_draft,
         is_reply=is_reply,
+        content_warning=content_warning,
     )
     db.add(new_post)
     db.commit()

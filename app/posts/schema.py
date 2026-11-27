@@ -71,6 +71,7 @@ class PostResponse:
     is_me: bool | None = None
     media_metadata: dict | None = None
     quoted_post: dict | None = None
+    content_warning: str | None = None
 
 
 # ── Response envelopes ─────────────────────────────────────────────────────

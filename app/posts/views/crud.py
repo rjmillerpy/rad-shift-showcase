@@ -20,6 +20,7 @@ from ..feeds import (
     get_single_post_formatted,
     get_user_drafts_formatted,
 )
+from ..models import MAX_CONTENT_WARNING_LENGTH
 from ..schema import (
     DraftsResponse,
     PostCreatedResponse,
@@ -91,6 +92,7 @@ def add_post(
     is_draft: bool = Form(False),
     parent_post_id: int | None = Form(None),
     is_reply: bool = Form(False),
+    content_warning: str | None = Form(None, max_length=MAX_CONTENT_WARNING_LENGTH),
     user: User = Depends(verified_user),
     db: Session = Depends(get_db),
 ) -> PostCreatedResponse:
@@ -114,6 +116,7 @@ def add_post(
         parent_post_id=parent_post_id,
         is_draft=is_draft,
         is_reply=is_reply,
+        content_warning=(content_warning or "").strip() or None,
     )
     return _created_response(media, is_draft)
 

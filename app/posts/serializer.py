@@ -203,6 +203,7 @@ def _build_single_response(
         reposted_by=(repost_map or {}).get(post.id, []) if repost_map else None,
         media_metadata=post.media_metadata,
         quoted_post=build_quoted_post(post),
+        content_warning=post.content_warning,
     )
 
 

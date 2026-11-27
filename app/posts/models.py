@@ -3,6 +3,10 @@ from sqlalchemy.orm import relationship
 
 from app.common.db import Base
 
+# A content warning's label ("spoilers", "violence"), shown before the post.
+# Here, not in constants.py, which imports this module.
+MAX_CONTENT_WARNING_LENGTH = 100
+
 
 class PostModel(Base):
     __tablename__ = "posts"
@@ -31,6 +35,9 @@ class PostModel(Base):
     parent_post_id = Column(Integer, ForeignKey("posts.id"), nullable=True, index=True)
     is_draft = Column(Boolean, default=False, nullable=False)
     is_reply = Column(Boolean, default=False, nullable=False)
+    # Shown in place of the post until the reader chooses to see it. Set by
+    # the author, or by a moderator (logged as an admin action).
+    content_warning = Column(String(MAX_CONTENT_WARNING_LENGTH), nullable=True)
 
     parent_post = relationship(
         "PostModel",
