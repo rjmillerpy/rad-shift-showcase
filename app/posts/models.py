@@ -1,3 +1,5 @@
+from enum import StrEnum
+
 from sqlalchemy import JSON, Boolean, Column, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 
@@ -6,6 +8,14 @@ from app.common.db import Base
 # A content warning's label ("spoilers", "violence"), shown before the post.
 # Here, not in constants.py, which imports this module.
 MAX_CONTENT_WARNING_LENGTH = 100
+
+
+class AiLabel(StrEnum):
+    """Why a post carries the "AI-generated" label."""
+
+    AUTHOR = "author"  # the author said so when posting
+    CONTENT_CREDENTIALS = "content_credentials"  # an image's own metadata said so
+    MODERATOR = "moderator"  # a moderator added it (logged)
 
 
 class PostModel(Base):
@@ -38,6 +48,8 @@ class PostModel(Base):
     # Shown in place of the post until the reader chooses to see it. Set by
     # the author, or by a moderator (logged as an admin action).
     content_warning = Column(String(MAX_CONTENT_WARNING_LENGTH), nullable=True)
+    # Why the post is labelled AI-generated (an AiLabel value), or null.
+    ai_label = Column(String(32), nullable=True)
 
     parent_post = relationship(
         "PostModel",

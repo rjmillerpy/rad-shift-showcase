@@ -72,6 +72,8 @@ class PostResponse:
     media_metadata: dict | None = None
     quoted_post: dict | None = None
     content_warning: str | None = None
+    # Why the post is labelled AI-generated: author, content_credentials, moderator.
+    ai_label: str | None = None
     # The community note shown under the post (id, text, source_url), if one is helpful.
     community_note: dict | None = None
 

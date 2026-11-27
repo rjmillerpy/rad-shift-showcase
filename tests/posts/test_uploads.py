@@ -104,6 +104,7 @@ class TestGetMultimediaUrls:
             "audio_url": None,
             "document_urls": None,
             "media_metadata": None,
+            "ai_content_credentials": False,
         }
 
     def test_single_image_populates_both_fields(self):

@@ -226,6 +226,7 @@ def _build_single_response(
         media_metadata=post.media_metadata,
         quoted_post=build_quoted_post(post),
         content_warning=post.content_warning,
+        ai_label=post.ai_label,
         community_note=shown_notes.get(post.id),
     )
 

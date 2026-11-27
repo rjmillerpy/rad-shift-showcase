@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import UploadFile
 
 from app.common.images import InvalidImageError, strip_metadata
+from app.common.provenance import declares_ai_generated
 from app.common.s3 import upload_fileobj_to_s3
 
 from .constants import (
@@ -92,7 +93,8 @@ def _assign_url_by_kind(
 
 
 def get_multimedia_urls(request_files: dict, username: str, unix_time: int) -> dict:
-    """Returns dict with image_url, image_urls, video_url, audio_url, document_urls, media_metadata."""
+    """Returns dict with image_url, image_urls, video_url, audio_url, document_urls,
+    media_metadata, and ai_content_credentials (an image said it was AI-made)."""
     # Local import breaks the media.py <-> uploads.py cycle at load time.
     from app.posts.media import extract_media_metadata
 
@@ -105,6 +107,7 @@ def get_multimedia_urls(request_files: dict, username: str, unix_time: int) -> d
     media_metadata: dict | None = None
     safe_username = _sanitize_s3_key_part(username)
     counters = {"img": 0, "doc": 0}
+    ai_content_credentials = False
 
     for _key, file in request_files.items():
         if not file or file.filename == "":
@@ -120,6 +123,8 @@ def get_multimedia_urls(request_files: dict, username: str, unix_time: int) -> d
 
         body = file.file
         if extension in ALLOWED_IMAGE_EXTENSIONS:
+            # Before stripping: the marker lives in the metadata about to go.
+            ai_content_credentials = ai_content_credentials or declares_ai_generated(file.file)
             try:
                 clean = strip_metadata(file.file, extension)
             except InvalidImageError as err:
@@ -140,4 +145,5 @@ def get_multimedia_urls(request_files: dict, username: str, unix_time: int) -> d
         "audio_url": buckets["audio_url"],
         "document_urls": buckets["document_urls"] or None,
         "media_metadata": media_metadata,
+        "ai_content_credentials": ai_content_credentials,
     }

@@ -20,7 +20,7 @@ from ..feeds import (
     get_single_post_formatted,
     get_user_drafts_formatted,
 )
-from ..models import MAX_CONTENT_WARNING_LENGTH
+from ..models import MAX_CONTENT_WARNING_LENGTH, AiLabel
 from ..schema import (
     DraftsResponse,
     PostCreatedResponse,
@@ -93,6 +93,8 @@ def add_post(
     parent_post_id: int | None = Form(None),
     is_reply: bool = Form(False),
     content_warning: str | None = Form(None, max_length=MAX_CONTENT_WARNING_LENGTH),
+    # The author's own "Made with AI" disclosure.
+    ai_generated: bool = Form(False),
     user: User = Depends(verified_user),
     db: Session = Depends(get_db),
 ) -> PostCreatedResponse:
@@ -117,6 +119,7 @@ def add_post(
         is_draft=is_draft,
         is_reply=is_reply,
         content_warning=(content_warning or "").strip() or None,
+        ai_label=_ai_label(ai_generated, media["ai_content_credentials"]),
     )
     return _created_response(media, is_draft)
 
@@ -172,3 +175,12 @@ def get_post_replies(
         current_user=current_user,
     )
     return RepliesResponse(replies=replies)
+
+
+def _ai_label(disclosed: bool, content_credentials: bool) -> AiLabel | None:
+    """The author's own word first, then what an image's metadata said."""
+    if disclosed:
+        return AiLabel.AUTHOR
+    if content_credentials:
+        return AiLabel.CONTENT_CREDENTIALS
+    return None

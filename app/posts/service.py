@@ -40,6 +40,7 @@ def create_post(
     is_draft: bool = False,
     is_reply: bool = False,
     content_warning: str | None = None,
+    ai_label: str | None = None,
 ) -> None:
     new_post = PostModel(
         text=text,
@@ -56,6 +57,7 @@ def create_post(
         is_draft=is_draft,
         is_reply=is_reply,
         content_warning=content_warning,
+        ai_label=ai_label,
     )
     db.add(new_post)
     db.commit()
