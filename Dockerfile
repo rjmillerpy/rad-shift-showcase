@@ -2,7 +2,7 @@
 #
 #   docker build -t radshift-backend .
 #
-# Multi-stage: `builder` installs the Python dependencies with uv; `runtime`
+# Multi-stage: `deps` installs the Python dependencies with uv; `runtime`
 # starts from a clean base and copies in only the virtualenv and the files the
 # app reads at runtime. Build tooling, the lockfile, tests and local caches
 # never reach the final image.
@@ -14,8 +14,8 @@ FROM ghcr.io/astral-sh/uv:0.13.9 AS uv
 # whatever copy the build host has cached, which is how an unpatched base
 # (Python 3.12.15, a brotli CVE on CISA's exploited list) kept being built.
 # Dependabot bumps the digest; both stages must match.
-# ── builder: resolve and install dependencies into /opt/venv ────────────────
-FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS builder
+# ── deps: resolve and install the third-party dependencies into /opt/venv ──
+FROM python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b AS deps
 
 # UV_PROJECT_ENVIRONMENT: build the venv at the path the runtime stage uses
 # (venvs hold absolute paths, so it must not move).
@@ -57,7 +57,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /opt/venv /opt/venv
+
+COPY --from=deps /opt/venv /opt/venv
 
 
 # Run as an unprivileged user. UID 1000 matches the usual first desktop user,
