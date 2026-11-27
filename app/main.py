@@ -40,6 +40,8 @@ from .ratelimit.deps import enforce_rate_limits
 from .tracing import setup as tracing
 from .tracing.constants import OTLP_ENDPOINT_ENV_VAR, SERVICE_NAME_ENV_VAR
 from .trends.views import trends_router
+from .web_analytics.context import AnalyticsContextMiddleware
+from .web_analytics.views import analytics_router
 from .widgets.views import widget_router
 
 logger = logging.getLogger(__name__)
@@ -69,6 +71,7 @@ _ROUTERS: list[tuple] = [
     (generator_router, "/generators"),
     (trends_router, "/trends"),
     (community_notes_router, "/notes"),
+    (analytics_router, "/analytics"),
     (health_router, "/health"),
 ]
 
@@ -128,6 +131,9 @@ def create_app() -> FastAPI:
         app.add_middleware(MetricsMiddleware, metrics=REQUEST_METRICS)
         app.include_router(metrics_router, prefix=METRICS_PATH)
         logger.info("Request metrics enabled at %s", METRICS_PATH)
+    # Inside the request log, outside the routes: engagements recorded deep in
+    # app/posts/toggles.py read the reader's feed mode and client from it.
+    app.add_middleware(AnalyticsContextMiddleware)
     # Outside the metrics middleware, so its id is bound before anything
     # else logs; inside CORS, so even its 500s carry the CORS headers.
     app.add_middleware(RequestLogMiddleware)

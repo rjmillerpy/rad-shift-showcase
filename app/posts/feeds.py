@@ -11,7 +11,7 @@ from app.common.utils import paginate
 from app.engagement.trending import ranked_post_ids
 
 from .constants import MEDIA_TYPE_FILTERS
-from .models import PostModel, PostSave, Repost, Slop
+from .models import PostModel, PostSave, Repost
 from .schema import PostResponse
 from .serializer import (
     _exclude_drafts_query,
@@ -20,6 +20,7 @@ from .serializer import (
     by_active_authors,
     get_ordered_model,
 )
+from .slop import ai_content_setting, apply_ai_setting, counted_flags, demoted, demoted_ids
 
 # Recency multiplier used when translating a unix-timestamp column into a
 # score contribution comparable to engagement counts.
@@ -155,18 +156,16 @@ def get_followed_posts_formatted(
     return build_post_responses(posts, current_user, db, repost_map=repost_map), has_more
 
 
-def _algo_score_query(db: Session, weights: AlgoWeights) -> Query[PostModel]:
-    """Return the base feed query ordered by the weighted engagement score."""
-    slop_count_sq = (
-        db.query(Slop.post_id, func.count(Slop.id).label("cnt")).group_by(Slop.post_id).subquery()
-    )
+def _algo_score_query(db: Session, weights: AlgoWeights, ai_content: str) -> Query[PostModel]:
+    """The base feed query: slop (app/posts/slop.py) sinks, the rest by weighted engagement score."""
+    flags = counted_flags(db)
     engagement = (
         func.coalesce(PostModel.likes, 0) * weights.like
         + func.coalesce(PostModel.reposts, 0) * weights.repost
         + func.coalesce(PostModel.shares, 0) * weights.share
         + func.coalesce(PostModel.laughs, 0) * weights.laugh
         + func.coalesce(PostModel.saves, 0) * weights.save
-        - func.coalesce(slop_count_sq.c.cnt, 0) * weights.slop
+        - func.coalesce(flags.c.flags, 0) * weights.slop
     )
     recency_score = (
         func.coalesce(PostModel.unix_timestamp, 0) / _RECENCY_TIMESTAMP_DIVISOR * weights.recency
@@ -175,10 +174,12 @@ def _algo_score_query(db: Session, weights: AlgoWeights) -> Query[PostModel]:
 
     return by_active_authors(
         db.query(PostModel)
-        .outerjoin(slop_count_sq, PostModel.id == slop_count_sq.c.post_id)
+        .outerjoin(flags, PostModel.id == flags.c.post_id)
         .options(joinedload(PostModel.user), joinedload(PostModel.parent_post))
         .filter(PostModel.is_reply == False)  # noqa: E712
-    ).order_by(score.desc(), PostModel.unix_timestamp.desc())
+    ).order_by(
+        demoted(flags.c.flags, ai_content).asc(), score.desc(), PostModel.unix_timestamp.desc()
+    )
 
 
 def get_algo_posts_formatted(
@@ -191,12 +192,15 @@ def get_algo_posts_formatted(
     settings: dict = (
         current_user.algo_settings if current_user and current_user.algo_settings else {}
     )
+    ai_content = ai_content_setting(settings)
     if settings.get("engagement_enabled", True):
-        base_query = _algo_score_query(db, AlgoWeights.from_settings(settings))
+        base_query = _algo_score_query(db, AlgoWeights.from_settings(settings), ai_content)
     else:
         base_query = _base_feed_query(db).order_by(PostModel.unix_timestamp.desc())
 
-    filtered = _exclude_slopped_query(_exclude_drafts_query(base_query), current_user, db)
+    filtered = apply_ai_setting(
+        _exclude_slopped_query(_exclude_drafts_query(base_query), current_user, db), ai_content
+    )
     posts, has_more = paginate(filtered, offset, limit)
     return build_post_responses(posts, current_user, db), has_more
 
@@ -211,18 +215,25 @@ def get_trending_posts_formatted(
     """Posts with the most engagement lately, from the Kafka-fed scores (app/engagement/).
 
     Ranked in Python (the scores decay with time); drafts, replies and the
-    viewer's slop-marked posts are filtered out before paging.
+    viewer's slop-marked posts are filtered out before paging, and slop
+    sinks to the end (app/posts/slop.py).
     """
     ranked = ranked_post_ids(db, time.time() if now is None else now)
     if not ranked:
         return [], False
-    visible = _exclude_slopped_query(
-        _exclude_drafts_query(_base_feed_query(db).filter(PostModel.id.in_(ranked))),
-        current_user,
-        db,
+    ai_content = ai_content_setting(current_user.algo_settings if current_user else None)
+    visible = apply_ai_setting(
+        _exclude_slopped_query(
+            _exclude_drafts_query(_base_feed_query(db).filter(PostModel.id.in_(ranked))),
+            current_user,
+            db,
+        ),
+        ai_content,
     ).all()
     rank = {post_id: position for position, post_id in enumerate(ranked)}
-    ordered = sorted(visible, key=lambda post: rank[post.id])
+    sinks = demoted_ids([post.id for post in visible], ai_content, db)
+    # Slop sinks below everything else; otherwise the trending order.
+    ordered = sorted(visible, key=lambda post: (post.id in sinks, rank[post.id]))
     page = ordered[offset : offset + limit]
     return build_post_responses(page, current_user, db), len(ordered) > offset + limit
 

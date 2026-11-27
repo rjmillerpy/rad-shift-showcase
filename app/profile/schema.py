@@ -13,6 +13,8 @@ from app.common.schema import FrozenModel
 from app.posts.schema import PostResponse
 
 SlopFilterMode = Literal["hide", "dim", "show", "only"]
+# AI-labelled posts in ranked feeds: as usual, sunk like slop, or left out (app/posts/slop.py).
+AiContentMode = Literal["show", "less", "hide"]
 
 
 class ProfileData(BaseModel):
@@ -38,6 +40,7 @@ class AlgoSettingsRequest(BaseModel):
     blocked_categories: list[str] | None = None
     slop_filter: SlopFilterMode | None = None
     slop_threshold: int | None = None
+    ai_content: AiContentMode | None = None
 
 
 class BubbleSettingsRequest(BaseModel):
@@ -122,6 +125,7 @@ class AlgoSettingsResponse(FrozenModel):
     blocked_categories: list[str]
     slop_filter: SlopFilterMode
     slop_threshold: int
+    ai_content: AiContentMode
 
 
 class BubbleSettingsResponse(FrozenModel):

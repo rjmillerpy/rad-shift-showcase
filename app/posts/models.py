@@ -50,6 +50,8 @@ class PostModel(Base):
     content_warning = Column(String(MAX_CONTENT_WARNING_LENGTH), nullable=True)
     # Why the post is labelled AI-generated (an AiLabel value), or null.
     ai_label = Column(String(32), nullable=True)
+    # When a moderator last dismissed its slop flags; earlier flags stop counting.
+    slop_cleared_at = Column(Integer, nullable=True)
 
     parent_post = relationship(
         "PostModel",

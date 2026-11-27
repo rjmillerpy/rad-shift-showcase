@@ -11,6 +11,7 @@ from app.admin.reports import file_report
 from app.auth.models import User
 from app.engagement.producer import emit
 from app.engagement.schema import PostEventType
+from app.web_analytics.context import record_engagement_here
 
 from .models import PostLaugh, PostLike, PostModel, PostSave, PostShare, Repost, Slop
 
@@ -36,6 +37,17 @@ def _get_post_or_404(post_id: int, db: Session) -> PostModel:
     return post
 
 
+# Positive toggles, by the name analytics records them under (un-actions aren't engagement).
+_ENGAGEMENTS = {"liked": "like", "laughed": "laugh", "re-posted": "repost", "saved": "save"}
+
+
+def _changed(action: str, post: PostModel, user: User, db: Session) -> None:
+    """After a committed toggle: tell the event stream, and analytics if it's an engagement."""
+    emit(_EVENTS[action], post.id, user.id)
+    if action in _ENGAGEMENTS:
+        record_engagement_here(_ENGAGEMENTS[action], post, db)
+
+
 def toggle_like(post_id: int, user: User, db: Session) -> dict:
     post = _get_post_or_404(post_id, db)
 
@@ -59,7 +71,7 @@ def toggle_like(post_id: int, user: User, db: Session) -> dict:
         action = "liked"
 
     db.commit()
-    emit(_EVENTS[action], post_id, user.id)
+    _changed(action, post, user, db)
     db.refresh(post)
     return {"likes": post.likes, "action": action}
 
@@ -87,7 +99,7 @@ def toggle_laugh(post_id: int, user: User, db: Session) -> dict:
         action = "laughed"
 
     db.commit()
-    emit(_EVENTS[action], post_id, user.id)
+    _changed(action, post, user, db)
     db.refresh(post)
     return {"laughs": post.laughs, "action": action}
 
@@ -115,7 +127,7 @@ def toggle_repost(post_id: int, user: User, db: Session) -> dict:
         action = "re-posted"
 
     db.commit()
-    emit(_EVENTS[action], post_id, user.id)
+    _changed(action, post, user, db)
     db.refresh(post)
     return {"reposts": post.reposts, "action": action}
 
@@ -142,7 +154,7 @@ def toggle_save(post_id: int, user: User, db: Session) -> dict:
         action = "saved"
 
     db.commit()
-    emit(_EVENTS[action], post_id, user.id)
+    _changed(action, post, user, db)
     db.refresh(post)
     return {"saves": post.saves, "action": action}
 
@@ -161,6 +173,7 @@ def share_post(post_id: int, user: User | None, db: Session) -> dict:
             db.add(new_share)
         db.commit()
         emit(PostEventType.SHARED, post_id, user.id if user is not None else None)
+        record_engagement_here("share", post, db)
         db.refresh(post)
     except IntegrityError as exc:
         db.rollback()

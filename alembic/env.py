@@ -22,6 +22,7 @@ from app.posts.models import (  # noqa
     Slop,
 )
 from app.ratelimit.models import RateLimitWindow  # noqa
+from app.web_analytics.models import AnalyticsEvent, VisitorSalt  # noqa
 
 load_dotenv()
 
