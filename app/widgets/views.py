@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.common.auth_jwt import AuthJWT, AuthJWTException
+from app.common.config import Config
 from app.common.db import get_db
 from app.common.deps import optional_user, require_admin
 from app.common.utils import get_user, require_active
@@ -123,6 +124,18 @@ def widget_sdk() -> JavaScriptResponse:
     return JavaScriptResponse(
         WIDGET_SDK_JS, headers={"Cache-Control": f"public, max-age={SDK_CACHE_SECONDS}"}
     )
+
+
+def render_csp() -> str:
+    """Limits on a rendered widget, whatever its code does.
+
+    frame-ancestors: only RadShift's own pages may embed it (no clickjacking
+    from elsewhere). form-action 'none': no form posts a viewer's input to
+    another site. base-uri 'none': no <base> redirecting its relative URLs.
+    Network requests stay open: API-connector widgets need them.
+    """
+    ancestors = " ".join(Config.ALLOWED_ORIGINS)
+    return f"frame-ancestors {ancestors}; form-action 'none'; base-uri 'none'"
 
 
 def with_sdk(html: str) -> str:
@@ -469,7 +482,7 @@ def render_widget(widget_id: int, db: Session = Depends(get_db)) -> HTMLResponse
                 widget.get("language", "html"),
                 css=widget.get("css"),
             )
-    return HTMLResponse(with_sdk(html))
+    return HTMLResponse(with_sdk(html), headers={"Content-Security-Policy": render_csp()})
 
 
 # -- Storage (radshift.storage in a widget; app/widgets/storage.py) ----------

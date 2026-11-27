@@ -152,6 +152,14 @@ def create_widget(user: User, data: dict, db: Session) -> dict:
         language=language,
         code=data["code"],
         css=data.get("css"),
+        # The panels and how compute runs: accepted by the schema and run by
+        # the render route, but never stored until 2026-11-25. Scanned with
+        # everything else at submit (scan_widget).
+        html_panel=data.get("html_panel"),
+        css_panel=data.get("css_panel"),
+        compute_panel=data.get("compute_panel"),
+        compute_language=data.get("compute_language"),
+        execution_mode=data.get("execution_mode", "client"),
         config=data.get("config"),
         icon_emoji=data.get("icon_emoji"),
         tags=data.get("tags"),
@@ -208,6 +216,11 @@ def update_widget(user: User, widget_id: int, data: dict, db: Session) -> dict:
         "description",
         "code",
         "css",
+        "html_panel",
+        "css_panel",
+        "compute_panel",
+        "compute_language",
+        "execution_mode",
         "config",
         "icon_emoji",
         "tags",
@@ -279,14 +292,28 @@ def list_my_widgets(user: User, db: Session) -> list[dict]:
     return _to_dicts(widgets, db)
 
 
+def scan_widget(widget: Widget) -> dict:
+    """Scan everything the widget can run, and record the result on it.
+
+    Every panel, not just `code` and `css`: the API accepts an HTML panel
+    (which may hold <script>), a CSS panel and a compute panel, and the
+    render route runs them all. Scanning two fields let a script in the HTML
+    panel through unread.
+    """
+    code = "\n".join(p for p in (widget.code, widget.html_panel, widget.compute_panel) if p)
+    css = "\n".join(p for p in (widget.css, widget.css_panel) if p) or None
+    scan = scan_widget_code(code, css=css)
+    widget.security_score = scan["score"]
+    widget.security_issues = scan["issues"]
+    widget.scan_passed = scan["passed"]
+    return scan
+
+
 def submit_for_review(user: User, widget_id: int, db: Session) -> dict:
     """Submit widget for review; runs automated security scan first."""
     widget = _own_widget(user, widget_id, db, changing="submit")
 
-    scan = scan_widget_code(widget.code, css=widget.css)
-    widget.security_score = scan["score"]
-    widget.security_issues = scan["issues"]
-    widget.scan_passed = scan["passed"]
+    scan = scan_widget(widget)
 
     if not scan["passed"]:
         widget.status = "rejected"
@@ -323,6 +350,21 @@ def review_widget(admin: User, widget_id: int, action: str, notes: str | None, d
 
     now = int(time.time())
     if action == "approve":
+        # Scanned again with today's rules: a widget submitted under older,
+        # weaker ones can't be approved past what the scanner now catches.
+        rescan = scan_widget(widget)
+        if not rescan["passed"]:
+            widget.status = "rejected"
+            widget.review_notes = (
+                f"Re-scan at approval failed (score: {rescan['score']}/100). "
+                "Fix the issues and resubmit."
+            )
+            widget.reviewed_by = admin.id
+            widget.reviewed_at = now
+            db.commit()
+            db.refresh(widget)
+            logger.warning("Widget %d failed its re-scan at approval", widget.id)
+            return _widget_to_dict(widget)
         widget.status = "approved"
         widget.published_at = now
         widget.html_output = compile_widget(widget)
