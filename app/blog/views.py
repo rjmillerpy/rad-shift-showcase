@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 
+from app.admin.models import ReportTarget
+from app.admin.reports import file_report
 from app.auth.models import User
 from app.blog.constants import (
     DEFAULT_LIST_LIMIT,
@@ -19,6 +21,7 @@ from app.blog.schema import (
     BlogDraftsResponse,
     BlogListResponse,
     BlogPostResponse,
+    BlogReportResponse,
     BlogStatsResponse,
     BlogUpdateRequest,
     BlogViewRequest,
@@ -35,8 +38,10 @@ from app.blog.service import (
 from app.blog.tracking import get_blog_stats, record_blog_view
 from app.common.auth_jwt import AuthJWT, AuthJWTException
 from app.common.db import get_db
+from app.common.deps import verified_user
 from app.common.schema import StatusResponse
 from app.common.utils import get_user, require_active, require_verified
+from app.posts.schema import ReportRequest
 
 blog_router = APIRouter()
 
@@ -96,6 +101,28 @@ def publish_blog(
     post = _require_owner_post(post_id, user.id, db)
     post = publish_blog_post(post, db)
     return BlogPostResponse.model_validate({"blog_post": blog_post_to_dict(post)})
+
+
+@blog_router.post("/{post_id}/report")
+def report_blog(
+    post_id: int,
+    body: ReportRequest,
+    user: User = Depends(verified_user),
+    db: Session = Depends(get_db),
+) -> BlogReportResponse:
+    """Report a published blog post to the moderators (admin reports queue)."""
+    blog = (
+        db.query(BlogPost)
+        .join(User, User.id == BlogPost.user_id)
+        .filter(BlogPost.id == post_id, BlogPost.is_published.is_(True), User.is_banned.is_(False))
+        .first()
+    )
+    if blog is None:
+        raise HTTPException(status_code=404, detail="Blog post not found")
+    if blog.user_id == user.id:
+        raise HTTPException(status_code=400, detail="You can't report your own blog post")
+    outcome = file_report(ReportTarget.BLOG, post_id, user, body.reason, db)
+    return BlogReportResponse(status=outcome, blog_id=post_id)
 
 
 @blog_router.get("/list")

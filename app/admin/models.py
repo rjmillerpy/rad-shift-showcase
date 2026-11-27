@@ -1,9 +1,20 @@
+from enum import StrEnum
+
 from sqlalchemy import JSON, Column, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.common.db import Base
 
 # A new report, waiting for a moderator; moderators then review or dismiss it.
 REPORT_STATUS_PENDING = "pending"
+
+
+class ReportTarget(StrEnum):
+    """What a report is about. Exactly one of the matching id columns is set."""
+
+    POST = "post"  # post_id (its images included)
+    BLOG = "blog"  # blog_id
+    PROFILE_PICTURE = "profile_picture"  # reported_user_id
 
 
 class AdminAction(Base):
@@ -22,20 +33,24 @@ class AdminAction(Base):
 
 
 class Report(Base):
-    """User-submitted reports on posts."""
+    """User-submitted reports on posts, blog posts and profile pictures."""
 
     __tablename__ = "reports"
 
-    id = Column(Integer, primary_key=True)
-    reporter_user_id = Column(Integer, ForeignKey("users.id"), index=True, nullable=False)
-    post_id = Column(Integer, ForeignKey("posts.id"), index=True, nullable=False)
-    reason = Column(String(500), nullable=False)
-    status = Column(
-        String(20), default=REPORT_STATUS_PENDING, nullable=False
-    )  # pending, reviewed, dismissed
-    unix_timestamp = Column(Integer, nullable=False)
-    reviewed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    reviewed_at = Column(Integer, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    reporter_user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), index=True)
+    target_type: Mapped[str] = mapped_column(String(20), default=ReportTarget.POST.value)
+    post_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("posts.id"), index=True)
+    blog_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("blog_posts.id"), index=True)
+    reported_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), index=True
+    )
+    reason: Mapped[str] = mapped_column(String(500))
+    # pending, reviewed, dismissed
+    status: Mapped[str] = mapped_column(String(20), default=REPORT_STATUS_PENDING)
+    unix_timestamp: Mapped[int] = mapped_column(Integer)
+    reviewed_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"))
+    reviewed_at: Mapped[int | None] = mapped_column(Integer)
 
 
 class CustomGraph(Base):

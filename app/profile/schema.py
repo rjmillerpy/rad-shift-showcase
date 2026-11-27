@@ -99,6 +99,11 @@ class ProfilePictureResponse(FrozenModel):
     url: str
 
 
+class ProfilePictureReportResponse(FrozenModel):
+    status: str  # "created", or "updated" when you'd already reported it
+    username: str
+
+
 class AlgoSettingsResponse(FrozenModel):
     engagement_enabled: bool
     like_weight: float

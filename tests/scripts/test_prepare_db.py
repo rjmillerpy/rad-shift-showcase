@@ -24,3 +24,21 @@ def test_an_error_inside_still_reaches_the_caller():
         migration_lock(connection),
     ):
         raise RuntimeError("migration failed")
+
+
+def test_every_module_that_defines_tables_is_imported():
+    """On a fresh database prepare_db creates tables from what it has imported,
+    then stamps Alembic at head: a module missing from its imports means its
+    tables never exist, and no later migration will add them (community notes
+    were missing for a day)."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "scripts" / "prepare_db.py").read_text()
+    with_tables = {
+        ".".join(path.relative_to(root).with_suffix("").parts)
+        for path in (root / "app").rglob("models.py")
+        if "__tablename__" in path.read_text()
+    }
+    missing = {module for module in with_tables if f"import {module}  " not in script}
+    assert with_tables and not missing, f"prepare_db.py doesn't import {sorted(missing)}"

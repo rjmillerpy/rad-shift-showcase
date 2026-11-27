@@ -6,7 +6,8 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.admin.models import REPORT_STATUS_PENDING, Report
+from app.admin.models import ReportTarget
+from app.admin.reports import file_report
 from app.auth.models import User
 from app.engagement.producer import emit
 from app.engagement.schema import PostEventType
@@ -201,32 +202,12 @@ def mark_post_slop(post_id: int, user: User, reason: str, db: Session) -> dict:
 def report_post(post_id: int, user: User, reason: str, db: Session) -> dict:
     """File a report for moderators; it lands in the admin moderation queue.
 
-    One open report per user and post: reporting again updates the reason
-    instead of piling up duplicates. You can't report your own post.
+    Reporting the same post again updates the reason (app/admin/reports.py).
+    You can't report your own post.
     """
     post = _get_post_or_404(post_id, db)
     if post.user_id == user.id:
         raise HTTPException(status_code=400, detail="You can't report your own post")
 
-    existing = (
-        db.query(Report)
-        .filter_by(reporter_user_id=user.id, post_id=post_id, status=REPORT_STATUS_PENDING)
-        .first()
-    )
-    if existing:
-        existing.reason = reason
-        db.commit()
-        return {"status": "updated", "post_id": post_id}
-
-    db.add(
-        Report(
-            reporter_user_id=user.id,
-            post_id=post_id,
-            reason=reason,
-            status=REPORT_STATUS_PENDING,
-            unix_timestamp=int(time.time()),
-        )
-    )
-    db.commit()
-    logger.info("Post %s reported by user %s", post_id, user.id)
-    return {"status": "ok", "post_id": post_id}
+    outcome = file_report(ReportTarget.POST, post_id, user, reason, db)
+    return {"status": "updated" if outcome == "updated" else "ok", "post_id": post_id}

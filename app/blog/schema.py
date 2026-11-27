@@ -112,6 +112,11 @@ class BlogDraftsResponse(FrozenModel):
     drafts: list[BlogPostDetail]
 
 
+class BlogReportResponse(FrozenModel):
+    status: str  # "created", or "updated" when you'd already reported it
+    blog_id: int
+
+
 class BlogStatsResponse(FrozenModel):
     view_count: int
     total_read_time_seconds: int

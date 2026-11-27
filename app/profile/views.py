@@ -3,12 +3,15 @@
 from fastapi import APIRouter, Depends, File, HTTPException, Path, UploadFile
 from sqlalchemy.orm import Session
 
+from app.admin.models import ReportTarget
+from app.admin.reports import file_report
 from app.auth.models import User
 from app.common.auth_jwt import AuthJWT, AuthJWTException
 from app.common.db import get_db
-from app.common.deps import required_user
+from app.common.deps import required_user, verified_user
 from app.common.schema import MessageResponse
 from app.common.utils import get_user
+from app.posts.schema import ReportRequest
 
 from .constants import (
     DEFAULT_AGORA_SETTINGS,
@@ -27,6 +30,7 @@ from .schema import (
     ChronicleSettingsRequest,
     ChronicleSettingsResponse,
     ProfileData,
+    ProfilePictureReportResponse,
     ProfilePictureResponse,
     ProfileResponse,
 )
@@ -151,6 +155,23 @@ def update_agora_settings(
     return AgoraSettingsResponse.model_validate(
         apply_settings_update(user, "agora_settings", DEFAULT_AGORA_SETTINGS, body, db)
     )
+
+
+@profile_router.post("/{username}/report-picture")
+def report_profile_picture(
+    body: ReportRequest,
+    username: str = Path(..., min_length=1, max_length=MAX_USERNAME_PATH_LEN),
+    user: User = Depends(verified_user),
+    db: Session = Depends(get_db),
+) -> ProfilePictureReportResponse:
+    """Report someone's profile picture to the moderators (admin reports queue)."""
+    owner = get_user(username, db)
+    if owner is None or owner.is_banned or not owner.profile_picture_url:
+        raise HTTPException(status_code=404, detail="Profile picture not found")
+    if owner.id == user.id:
+        raise HTTPException(status_code=400, detail="You can't report your own picture")
+    outcome = file_report(ReportTarget.PROFILE_PICTURE, int(owner.id), user, body.reason, db)
+    return ProfilePictureReportResponse(status=outcome, username=owner.username)
 
 
 # ── Public profile — /{username} is a catch-all so it stays LAST ───────────
