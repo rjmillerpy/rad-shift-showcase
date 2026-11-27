@@ -10,6 +10,7 @@ from app.amble.avatar.models import AmbleAvatar  # noqa
 from app.auth.models import User, followers  # noqa
 from app.blog.models import BlogPost, BlogView  # noqa
 from app.common.db import Base
+from app.community_notes.models import CommunityNote, NoteRating  # noqa
 from app.engagement.models import PostTrending, ProcessedPostEvent  # noqa
 from app.posts.models import (  # noqa
     PostLaugh,

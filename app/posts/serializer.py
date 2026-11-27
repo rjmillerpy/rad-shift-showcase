@@ -12,6 +12,8 @@ from sqlalchemy import UnaryExpression, func, select
 from sqlalchemy.orm import Query, Session
 
 from app.auth.models import User
+from app.community_notes.constants import NoteStatus
+from app.community_notes.models import CommunityNote
 
 from .models import PostLaugh, PostLike, PostModel, PostSave, Repost, Slop
 from .schema import PostResponse
@@ -159,6 +161,25 @@ def _batch_interaction_ids(
     }
 
 
+def _batch_shown_notes(post_ids: list[int], db: Session) -> dict[int, dict]:
+    """The community note each post shows: its most helpful one, if any is helpful."""
+    helpful = (
+        db.query(CommunityNote)
+        .filter(
+            CommunityNote.post_id.in_(post_ids),
+            CommunityNote.status == NoteStatus.HELPFUL.value,
+            CommunityNote.is_removed.is_(False),
+        )
+        .order_by(CommunityNote.intercept.asc())
+        .all()
+    )
+    # Ascending, so each post's highest-intercept note is written last.
+    return {
+        note.post_id: {"id": note.id, "text": note.text, "source_url": note.source_url}
+        for note in helpful
+    }
+
+
 def _build_single_response(
     post: PostModel,
     *,
@@ -170,6 +191,7 @@ def _build_single_response(
     followed_ids: set[int],
     repost_map: dict | None,
     saved_override: bool | None,
+    shown_notes: dict[int, dict],
 ) -> PostResponse:
     is_me = bool(current_user and post.user.id == current_user.id)
     is_saved = saved_override if saved_override is not None else post.id in interactions["saved"]
@@ -204,6 +226,7 @@ def _build_single_response(
         media_metadata=post.media_metadata,
         quoted_post=build_quoted_post(post),
         content_warning=post.content_warning,
+        community_note=shown_notes.get(post.id),
     )
 
 
@@ -224,6 +247,7 @@ def build_post_responses(
     slop_counts = _batch_slop_counts(post_ids, db)
     interactions = _batch_interaction_ids(post_ids, current_user, db)
     followed_ids: set[int] = {u.id for u in current_user.followed} if current_user else set()
+    shown_notes = _batch_shown_notes(post_ids, db)
 
     return [
         _build_single_response(
@@ -236,6 +260,7 @@ def build_post_responses(
             followed_ids=followed_ids,
             repost_map=repost_map,
             saved_override=saved_override,
+            shown_notes=shown_notes,
         )
         for post in posts
     ]

@@ -20,6 +20,7 @@ from .blog.views import blog_router
 from .common.config import Config
 from .common.db import create_tables, engine
 from .common.route_templates import RouteTemplates
+from .community_notes.views import community_notes_router
 from .engagement import producer as post_events
 from .flags import service as flags
 from .follow.views import follow_router
@@ -67,6 +68,7 @@ _ROUTERS: list[tuple] = [
     (widget_router, "/widgets"),
     (generator_router, "/generators"),
     (trends_router, "/trends"),
+    (community_notes_router, "/notes"),
     (health_router, "/health"),
 ]
 

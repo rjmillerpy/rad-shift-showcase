@@ -20,6 +20,7 @@ _ALL_PREFIXES = [
     "/generators",
     "/trends",
     "/health",
+    "/notes",
 ]
 
 

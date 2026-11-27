@@ -33,6 +33,8 @@ RESEND_VERIFICATION = Policy("resend-verification", limit=3, window_seconds=HOUR
 # A game may save often (radshift.storage).
 WIDGET_STORAGE = Policy("widget-storage", limit=300, window_seconds=MINUTE, per_user=True)
 WRITE = Policy("write", limit=60, window_seconds=MINUTE, per_user=True)
+# Writing a community note is slow work worth a few a day; X caps new writers lower still.
+COMMUNITY_NOTE = Policy("community-note", limit=20, window_seconds=24 * HOUR, per_user=True)
 
 # (method, route template) -> policy; any other write gets WRITE, reads none.
 ROUTE_POLICIES: dict[tuple[str, str], Policy] = {
@@ -42,5 +44,6 @@ ROUTE_POLICIES: dict[tuple[str, str], Policy] = {
     ("POST", "/auth/resend-verification"): RESEND_VERIFICATION,
     ("PUT", "/widgets/{widget_id}/storage/{key}"): WIDGET_STORAGE,
     ("DELETE", "/widgets/{widget_id}/storage/{key}"): WIDGET_STORAGE,
+    ("POST", "/notes/posts/{post_id}"): COMMUNITY_NOTE,
 }
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
