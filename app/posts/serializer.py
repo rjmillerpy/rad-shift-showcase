@@ -49,7 +49,8 @@ def _exclude_slopped_query(
     """Apply the user's slop_filter setting to `base_query`.
 
     Modes:
-      - "show": no filter, everything visible.
+      - "show" / "all_slop": no filter, everything visible ("all_slop" also
+        floats slop to the top of ranked feeds, app/posts/slop.py).
       - "hide" / "dim" (default): exclude posts this user has slopped/reported.
         "dim" is a frontend-only visual mode — the backend treats it as "hide".
       - "only": inverse mode — include ONLY posts whose community slop count
@@ -60,7 +61,7 @@ def _exclude_slopped_query(
     algo_settings: dict[str, Any] = current_user.algo_settings or {}
     slop_filter = algo_settings.get("slop_filter", "hide")
 
-    if slop_filter == "show":
+    if slop_filter in ("show", "all_slop"):
         return base_query
 
     if slop_filter == "only":

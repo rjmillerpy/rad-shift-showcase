@@ -159,6 +159,7 @@ from app.common.db import Base, get_db  # noqa: E402
 from app.main import create_app  # noqa: E402
 from app.plugins import Edition, use_edition  # noqa: E402
 from app.posts.models import PostModel  # noqa: E402
+from app.posts.topics import save_topics  # noqa: E402
 from tests.helpers import FLAGS_FILE, serve_flags_file  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -328,6 +329,8 @@ def create_post(db_session):
             parent_post_id=parent_post_id,
         )
         db_session.add(post)
+        db_session.flush()
+        save_topics(post, db_session)  # as app/posts/service.create_post does
         db_session.commit()
         db_session.refresh(post)
         return post

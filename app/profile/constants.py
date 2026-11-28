@@ -52,6 +52,7 @@ DEFAULT_ALGO_SETTINGS: dict = {
     "blocked_categories": [],
     "slop_filter": "hide",
     "slop_threshold": 0,
+    "sink_community_slop": True,
     "ai_content": "show",
 }
 

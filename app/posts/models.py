@@ -1,13 +1,15 @@
 from enum import StrEnum
 
 from sqlalchemy import JSON, Boolean, Column, ForeignKey, Index, Integer, String, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.common.db import Base
 
 # A content warning's label ("spoilers", "violence"), shown before the post.
 # Here, not in constants.py, which imports this module.
 MAX_CONTENT_WARNING_LENGTH = 100
+# A post topic, lowercased, without the "#" (app/posts/topics.py).
+MAX_TOPIC_LENGTH = 50
 
 
 class AiLabel(StrEnum):
@@ -120,3 +122,14 @@ class Slop(Base):
     unix_timestamp = Column(Integer, nullable=False)
 
     __table_args__ = (UniqueConstraint("user_id", "post_id", name="unique_user_post_slop"),)
+
+
+class PostTopic(Base):
+    """One of a post's topics (app/posts/topics.py), for tailoring feeds."""
+
+    __tablename__ = "post_topics"
+
+    post_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("posts.id", ondelete="CASCADE"), primary_key=True
+    )
+    topic: Mapped[str] = mapped_column(String(MAX_TOPIC_LENGTH), primary_key=True, index=True)

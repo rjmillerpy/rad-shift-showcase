@@ -19,6 +19,7 @@ from app.engagement.producer import emit
 from app.engagement.schema import PostEventType
 
 from .models import PostModel
+from .topics import save_topics
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,8 @@ def create_post(
         ai_label=ai_label,
     )
     db.add(new_post)
+    db.flush()
+    save_topics(new_post, db)
     db.commit()
     if not is_draft:
         emit(PostEventType.CREATED, new_post.id, user.id)

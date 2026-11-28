@@ -1,6 +1,6 @@
-"""Feed endpoints: `/`, `/algo`, `/trending`, `/media`, `/following`, `/tags`."""
+"""Feed endpoints: `/`, `/algo`, `/trending`, `/random`, `/media`, `/following`, `/tags`."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
@@ -14,10 +14,14 @@ from ..feeds import (
     get_media_posts_formatted,
     get_trending_posts_formatted,
 )
+from ..random_feed import MAX_RANDOM_OFFSET, get_random_posts_formatted
 from ..schema import PostPageResponse, TagsResponse
 from ..search import get_feed_tags
 
 DEFAULT_PAGE_LIMIT = 20
+MAX_PAGE_LIMIT = 100
+# The frontend picks a seed per shuffle; any 31-bit number.
+MAX_SEED = 2**31 - 1
 
 
 router = APIRouter()
@@ -68,6 +72,21 @@ def get_trending_posts(
         current_user=current_user,
         offset=offset,
         limit=limit,
+    )
+    return PostPageResponse(posts=posts, has_more=has_more)
+
+
+@router.get("/random")
+def get_random_posts(
+    seed: int = Query(0, ge=0, le=MAX_SEED),
+    offset: int = Query(0, ge=0, le=MAX_RANDOM_OFFSET),
+    limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
+    current_user: User | None = Depends(optional_user),
+    db: Session = Depends(get_db),
+) -> PostPageResponse:
+    """People's and scraped posts taking turns, shuffled by `seed` (app/posts/random_feed.py)."""
+    posts, has_more = get_random_posts_formatted(
+        db=db, seed=seed, current_user=current_user, offset=offset, limit=limit
     )
     return PostPageResponse(posts=posts, has_more=has_more)
 

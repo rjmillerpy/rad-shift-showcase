@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from app.common.schema import FrozenModel
 from app.posts.schema import PostResponse
 
-SlopFilterMode = Literal["hide", "dim", "show", "only"]
+SlopFilterMode = Literal["hide", "dim", "show", "only", "all_slop"]
 # AI-labelled posts in ranked feeds: as usual, sunk like slop, or left out (app/posts/slop.py).
 AiContentMode = Literal["show", "less", "hide"]
 
@@ -40,6 +40,7 @@ class AlgoSettingsRequest(BaseModel):
     blocked_categories: list[str] | None = None
     slop_filter: SlopFilterMode | None = None
     slop_threshold: int | None = None
+    sink_community_slop: bool | None = None
     ai_content: AiContentMode | None = None
 
 
@@ -125,6 +126,8 @@ class AlgoSettingsResponse(FrozenModel):
     blocked_categories: list[str]
     slop_filter: SlopFilterMode
     slop_threshold: int
+    # Sink posts the community flags as slop (app/posts/slop.py), for "hide" and "dim".
+    sink_community_slop: bool
     ai_content: AiContentMode
 
 

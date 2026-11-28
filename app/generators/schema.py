@@ -9,6 +9,8 @@ from app.common.schema import FrozenModel
 # The shape of a platform name. Which platforms exist is the edition's
 # business (app/generators/platforms/base.py); the service rejects the rest.
 PLATFORM_NAME_REGEX = r"^[a-z][a-z0-9_]{0,31}$"
+# Topics tagged on every post from a source (SourceConfig.topics).
+MAX_SOURCE_TOPICS = 10
 
 
 class SelectorConfig(BaseModel):
@@ -35,6 +37,8 @@ class SourceConfig(BaseModel):
     )
     include_keywords: list[str] = Field(default_factory=list)
     exclude_keywords: list[str] = Field(default_factory=list)
+    # Tagged on every post from this source, for tailored feeds (app/posts/topics.py).
+    topics: list[str] = Field(default_factory=list, max_length=MAX_SOURCE_TOPICS)
     use_browser: bool = Field(
         default=False, description="Use headless browser for JS-rendered sites"
     )

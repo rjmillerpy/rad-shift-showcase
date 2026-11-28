@@ -15,10 +15,15 @@ Demotion is a sort key ahead of the feed's own score, not a number mixed
 into it: the feed's score adds engagement counts to a recency term in other
 units, where any fixed penalty is either nothing or years.
 
+Readers choose how slop is ordered (slop_ordering): sunk (the default),
+left in the feed's own order (sink_community_slop off, or slop_filter "show"
+or "only", where sinking would fight the reader's choice), or floated to the
+top worst first (slop_filter "all_slop", for readers who love pain).
+
 Flags from before a moderator's dismissal (posts.slop_cleared_at) don't count.
 """
 
-from sqlalchemy import Float, and_, case, cast, func
+from sqlalchemy import Float, case, cast, false, func, or_
 from sqlalchemy.orm import Query, Session
 
 from .models import PostModel, Slop
@@ -32,6 +37,14 @@ AI_SHOW = "show"
 AI_LESS = "less"  # sink them like slop
 AI_HIDE = "hide"
 AI_CONTENT_CHOICES = (AI_SHOW, AI_LESS, AI_HIDE)
+
+# How a ranked feed orders slop, from the reader's settings (slop_ordering).
+SINK = "sink"  # below everything else
+UNSORTED = "unsorted"  # wherever the feed's own score puts it
+FLOAT = "float"  # on top, the sloppiest first
+ALL_SLOP = "all_slop"  # the slop_filter choice that floats it
+# slop_filter choices that already say what the reader wants to see of slop.
+_FILTERS_WITHOUT_SINKING = ("show", "only")
 
 
 def counted_flags(db: Session):
@@ -60,11 +73,27 @@ def slop_score(flags_column):
     return (flags + PRIOR * PSEUDO_COUNT) / (flags + positive_reactions() + PSEUDO_COUNT)
 
 
-def demoted(flags_column, ai_content: str):
-    """1 for a post that sinks below the rest (slop, or AI-labelled for "less"), else 0."""
-    sinks = slop_score(flags_column) >= DEMOTE_AT
+def slop_ordering(settings: dict | None) -> str:
+    settings = settings or {}
+    slop_filter = settings.get("slop_filter")
+    if slop_filter == ALL_SLOP:
+        return FLOAT
+    if slop_filter in _FILTERS_WITHOUT_SINKING or not settings.get("sink_community_slop", True):
+        return UNSORTED
+    return SINK
+
+
+def rank_key(flags_column, ordering: str, ai_content: str):
+    """Sorted ascending ahead of a feed's own score: where slop goes.
+
+    "less" sinks AI-labelled posts in every ordering but FLOAT, where only
+    slop counts.
+    """
+    if ordering == FLOAT:
+        return -slop_score(flags_column)
+    sinks = slop_score(flags_column) >= DEMOTE_AT if ordering == SINK else false()
     if ai_content == AI_LESS:
-        sinks = sinks | PostModel.ai_label.is_not(None)
+        sinks = or_(sinks, PostModel.ai_label.is_not(None))
     return case((sinks, 1), else_=0)
 
 
@@ -80,14 +109,14 @@ def apply_ai_setting(query: Query[PostModel], ai_content: str) -> Query[PostMode
     return query
 
 
-def demoted_ids(post_ids: list[int], ai_content: str, db: Session) -> set[int]:
-    """Which of these posts sink (for feeds ranked in Python, like trending)."""
+def rank_keys(post_ids: list[int], ordering: str, ai_content: str, db: Session) -> dict[int, float]:
+    """rank_key per post, for feeds ranked in Python (trending)."""
     if not post_ids:
-        return set()
+        return {}
     flags = counted_flags(db)
-    query: Query[tuple[int]] = (
-        db.query(PostModel.id)
+    rows = (
+        db.query(PostModel.id, rank_key(flags.c.flags, ordering, ai_content))
         .outerjoin(flags, flags.c.post_id == PostModel.id)
-        .filter(and_(PostModel.id.in_(post_ids), demoted(flags.c.flags, ai_content) == 1))
+        .filter(PostModel.id.in_(post_ids))
     )
-    return {int(post_id) for (post_id,) in query.all()}
+    return {int(post_id): float(key) for post_id, key in rows.all()}

@@ -99,6 +99,9 @@ def build_scraped_post_metadata(
 ) -> dict[str, Any]:
     """Combine source + (optional) link_card into a post_metadata dict."""
     metadata: dict[str, Any] = {"source": build_source_metadata(source)}
+    topics = (source.config or {}).get("topics")
+    if topics:
+        metadata["tags"] = list(topics)
     link_card = build_link_card(item)
     if link_card is not None:
         metadata["link_card"] = link_card

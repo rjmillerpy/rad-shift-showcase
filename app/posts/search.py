@@ -17,6 +17,7 @@ from .serializer import (
     build_post_responses,
     by_active_authors,
 )
+from .topics import metadata_tags
 
 
 def search_posts_formatted(
@@ -117,22 +118,6 @@ def _tag_source_query(
     )
 
 
-def _extract_tags_from_meta(raw_meta: str | dict | None) -> list[str]:
-    """Return a normalised list of tags for a single row of post_metadata."""
-    if not raw_meta:
-        return []
-    try:
-        meta = json.loads(raw_meta) if isinstance(raw_meta, str) else raw_meta
-    except (json.JSONDecodeError, TypeError):
-        return []
-    tags = meta.get("tags")
-    if isinstance(tags, str):
-        return [t.strip() for t in tags.split("|") if t.strip()]
-    if isinstance(tags, list):
-        return [t.strip() for t in tags if isinstance(t, str) and t.strip()]
-    return []
-
-
 def get_feed_tags(
     db: Session,
     feed: str = "main",
@@ -143,7 +128,7 @@ def get_feed_tags(
     rows = _tag_source_query(db, feed, current_user).all()
     tag_set: set[str] = set()
     for (raw_meta,) in rows:
-        tag_set.update(_extract_tags_from_meta(raw_meta))
+        tag_set.update(metadata_tags(raw_meta))
     return sorted(tag_set)[:limit]
 
 
