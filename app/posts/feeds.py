@@ -207,6 +207,29 @@ def _slop_key(flags_column, settings: dict):
     return rank_key(flags_column, slop_ordering(settings), ai_content_setting(settings))
 
 
+def visible_to(query: Query[PostModel], viewer: User | None, db: Session) -> Query[PostModel]:
+    """What every ranked feed leaves out: drafts, and per the viewer's settings
+    their slop-marked posts, AI posts, blocked topics and reacted-to posts."""
+    settings = reader_settings(viewer)
+    return filter_posts(
+        apply_ai_setting(
+            _exclude_slopped_query(_exclude_drafts_query(query), viewer, db),
+            ai_content_setting(settings),
+        ),
+        Tailoring.from_settings(settings),
+        viewer,
+        db,
+    )
+
+
+def algo_ranked_query(db: Session, viewer: User | None) -> Query[PostModel]:
+    """The viewer's algo order (engagement-weighted, or newest first if they turned it off)."""
+    settings = reader_settings(viewer)
+    if settings.get("engagement_enabled", True):
+        return _algo_score_query(db, AlgoWeights.from_settings(settings), settings, viewer)
+    return _chronological_query(db, settings)
+
+
 def get_algo_posts_formatted(
     db: Session,
     current_user: User | None = None,
@@ -214,27 +237,10 @@ def get_algo_posts_formatted(
     limit: int = 20,
 ) -> tuple[list[PostResponse], bool]:
     """Algorithmic feed with configurable weights from user settings."""
-    settings = reader_settings(current_user)
-    ai_content = ai_content_setting(settings)
-    tailoring = Tailoring.from_settings(settings)
-    if settings.get("engagement_enabled", True):
-        weights = AlgoWeights.from_settings(settings)
-        base_query = _algo_score_query(db, weights, settings, current_user)
-    else:
-        base_query = _chronological_query(db, settings)
-
-    filtered = filter_posts(
-        apply_ai_setting(
-            _exclude_slopped_query(_exclude_drafts_query(base_query), current_user, db),
-            ai_content,
-        ),
-        tailoring,
-        current_user,
-        db,
-    )
+    filtered = visible_to(algo_ranked_query(db, current_user), current_user, db)
     posts, has_more = paginate(filtered, offset, limit)
-    posts = diversify(posts, tailoring.diversity, db)
-    return build_post_responses(posts, current_user, db), has_more
+    diversity = Tailoring.from_settings(reader_settings(current_user)).diversity
+    return build_post_responses(diversify(posts, diversity, db), current_user, db), has_more
 
 
 def get_trending_posts_formatted(
@@ -255,19 +261,8 @@ def get_trending_posts_formatted(
         return [], False
     settings = reader_settings(current_user)
     ai_content = ai_content_setting(settings)
-    visible = filter_posts(
-        apply_ai_setting(
-            _exclude_slopped_query(
-                _exclude_drafts_query(_base_feed_query(db).filter(PostModel.id.in_(ranked))),
-                current_user,
-                db,
-            ),
-            ai_content,
-        ),
-        Tailoring.from_settings(settings),
-        current_user,
-        db,
-    ).all()
+    candidates = _base_feed_query(db).filter(PostModel.id.in_(ranked))
+    visible = visible_to(candidates, current_user, db).all()
     rank = {post_id: position for position, post_id in enumerate(ranked)}
     keys = rank_keys([post.id for post in visible], slop_ordering(settings), ai_content, db)
     ordered = sorted(visible, key=lambda post: (keys[post.id], rank[post.id]))

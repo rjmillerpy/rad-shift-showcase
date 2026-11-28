@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from app.common.schema import FrozenModel
 
 from .constants import MAX_POST_TEXT_CHARS, MAX_REPORT_REASON_LENGTH
+from .models import MAX_TOPIC_LENGTH
 
 
 class PostCreateRequest(BaseModel):
@@ -175,3 +176,25 @@ class ChronicleResponse(FrozenModel):
     page: int
     has_more: bool
     cached: bool
+
+
+class BranchResponse(FrozenModel):
+    topic: str
+    via: str  # the topic it grew from
+    posts: int
+
+
+class BranchPageResponse(FrozenModel):
+    """Your content branches (app/posts/branches.py) and a page of posts on them."""
+
+    branches: list[BranchResponse]
+    posts: list[PostResponse]
+    has_more: bool
+
+
+class FollowedTopicsResponse(FrozenModel):
+    topics: list[str]
+
+
+class TopicRequest(BaseModel):
+    topic: str = Field(..., min_length=1, max_length=MAX_TOPIC_LENGTH)

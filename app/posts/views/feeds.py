@@ -1,4 +1,5 @@
-"""Feed endpoints: `/`, `/algo`, `/trending`, `/random`, `/media`, `/following`, `/tags`."""
+"""Feed endpoints: `/`, `/algo`, `/trending`, `/random`, `/branches`, `/media`, `/following`,
+`/tags`, and following topics (`/topics/follow`, `/topics/unfollow`)."""
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
@@ -7,6 +8,7 @@ from app.auth.models import User
 from app.common.db import get_db
 from app.common.deps import optional_user, required_user
 
+from ..branches import follow, get_branch_posts_formatted, unfollow
 from ..feeds import (
     get_algo_posts_formatted,
     get_all_posts_formatted,
@@ -15,7 +17,14 @@ from ..feeds import (
     get_trending_posts_formatted,
 )
 from ..random_feed import MAX_RANDOM_OFFSET, get_random_posts_formatted
-from ..schema import PostPageResponse, TagsResponse
+from ..schema import (
+    BranchPageResponse,
+    BranchResponse,
+    FollowedTopicsResponse,
+    PostPageResponse,
+    TagsResponse,
+    TopicRequest,
+)
 from ..search import get_feed_tags
 
 DEFAULT_PAGE_LIMIT = 20
@@ -89,6 +98,41 @@ def get_random_posts(
         db=db, seed=seed, current_user=current_user, offset=offset, limit=limit
     )
     return PostPageResponse(posts=posts, has_more=has_more)
+
+
+@router.get("/branches")
+def get_branch_posts(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
+    current_user: User = Depends(required_user),
+    db: Session = Depends(get_db),
+) -> BranchPageResponse:
+    """Topics next to the ones you follow, and posts on them (app/posts/branches.py)."""
+    branches, posts, has_more = get_branch_posts_formatted(db, current_user, offset, limit)
+    return BranchPageResponse(
+        branches=[BranchResponse(topic=b.topic, via=b.via, posts=b.posts) for b in branches],
+        posts=posts,
+        has_more=has_more,
+    )
+
+
+@router.post("/topics/follow")
+def follow_topic(
+    body: TopicRequest,
+    current_user: User = Depends(required_user),
+    db: Session = Depends(get_db),
+) -> FollowedTopicsResponse:
+    """Follow a topic: it joins your Bubbles topics and roots new branches."""
+    return FollowedTopicsResponse(topics=follow(current_user, body.topic, db))
+
+
+@router.post("/topics/unfollow")
+def unfollow_topic(
+    body: TopicRequest,
+    current_user: User = Depends(required_user),
+    db: Session = Depends(get_db),
+) -> FollowedTopicsResponse:
+    return FollowedTopicsResponse(topics=unfollow(current_user, body.topic, db))
 
 
 @router.get("/media")

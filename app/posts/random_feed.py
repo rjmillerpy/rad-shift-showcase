@@ -18,12 +18,11 @@ from sqlalchemy.orm import Query, Session
 from app.auth.models import User
 from app.generators.models import GeneratorProfile
 
-from .feeds import _base_feed_query
+from .feeds import _base_feed_query, visible_to
 from .models import PostModel
 from .schema import PostResponse
-from .serializer import _exclude_drafts_query, _exclude_slopped_query, build_post_responses
-from .slop import ai_content_setting, apply_ai_setting
-from .tailoring import Tailoring, filter_posts, jitter, reader_settings
+from .serializer import build_post_responses
+from .tailoring import jitter
 
 MAX_RANDOM_OFFSET = 500
 
@@ -35,16 +34,7 @@ def get_random_posts_formatted(
     offset: int = 0,
     limit: int = 20,
 ) -> tuple[list[PostResponse], bool]:
-    settings = reader_settings(current_user)
-    visible = filter_posts(
-        apply_ai_setting(
-            _exclude_slopped_query(_exclude_drafts_query(_base_feed_query(db)), current_user, db),
-            ai_content_setting(settings),
-        ),
-        Tailoring.from_settings(settings),
-        current_user,
-        db,
-    )
+    visible = visible_to(_base_feed_query(db), current_user, db)
     needed = offset + limit + 1
     streams = [_shuffled(pool, seed, needed) for pool in _pools(visible)]
     merged = _take_turns(streams)
