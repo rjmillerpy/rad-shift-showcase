@@ -171,3 +171,47 @@ class SelectorsResponse(FrozenModel):
 class SelectorsSavedResponse(FrozenModel):
     selectors: dict[str, Any]
     status: str
+
+
+class TemplateFieldOut(FrozenModel):
+    key: str
+    label: str
+    placeholder: str
+    pattern: str
+    help: str
+    required: bool
+    takes_topic: bool
+
+
+class SourceTemplateOut(FrozenModel):
+    id: str
+    name: str
+    description: str
+    platform: str
+    fields: list[TemplateFieldOut]
+
+
+class SourceTemplatesResponse(FrozenModel):
+    templates: list[SourceTemplateOut]
+
+
+class TemplateSourceRequest(BaseModel):
+    """A template's field values, by field key (app/generators/templates.py)."""
+
+    values: dict[str, str] = Field(default_factory=dict, max_length=10)
+
+
+class TemplateSourceResponse(FrozenModel):
+    source: GeneratorSourceOut
+    bot_username: str  # the account it posts as, made with it
+
+
+class WantedTopicOut(FrozenModel):
+    topic: str
+    readers: int
+    posts: int
+    thin: bool
+
+
+class WantedTopicsResponse(FrozenModel):
+    topics: list[WantedTopicOut]

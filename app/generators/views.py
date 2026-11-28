@@ -1,6 +1,7 @@
 """Admin-only API endpoints for the content generator system."""
 
 import logging
+from dataclasses import asdict
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -13,7 +14,7 @@ from app.common.deps import require_admin
 from app.common.schema import StatusResponse
 from app.common.utils import get_user
 
-from . import service
+from . import service, templates
 from .constants import (
     DEFAULT_BROWSER_ENGINE,
     DEFAULT_LIST_LIMIT,
@@ -21,6 +22,7 @@ from .constants import (
     MAX_LIST_LIMIT,
     MAX_RUN_LIMIT,
 )
+from .demand import wanted_topics
 from .models import GeneratorProfile, GeneratorRun, GeneratorSource
 from .schema import (
     AnalyzeRequest,
@@ -35,8 +37,16 @@ from .schema import (
     SelectorsResponse,
     SelectorsSavedResponse,
     SourceCreateRequest,
+    SourceTemplateOut,
+    SourceTemplatesResponse,
     SourceUpdateRequest,
+    TemplateFieldOut,
+    TemplateSourceRequest,
+    TemplateSourceResponse,
+    WantedTopicOut,
+    WantedTopicsResponse,
 )
+from .templates import available_templates
 from .web import web_scraper
 
 logger = logging.getLogger(__name__)
@@ -123,6 +133,60 @@ def delete_source(
     _get_admin_user(Authorize, db)
     service.delete_source(source_id, db)
     return StatusResponse(status="deleted")
+
+
+# ── Templates (app/generators/templates.py) ─────────────────────────
+
+
+@generator_router.get("/templates")
+def list_templates(
+    Authorize: AuthJWT = Depends(),
+    db: Session = Depends(get_db),
+) -> SourceTemplatesResponse:
+    _get_admin_user(Authorize, db)
+    return SourceTemplatesResponse(
+        templates=[
+            SourceTemplateOut(
+                id=t.id,
+                name=t.name,
+                description=t.description,
+                platform=t.platform,
+                fields=[TemplateFieldOut.model_validate(asdict(f)) for f in t.fields],
+            )
+            for t in available_templates()
+        ]
+    )
+
+
+@generator_router.post("/templates/{template_id}")
+def create_from_template(
+    template_id: str,
+    payload: TemplateSourceRequest,
+    Authorize: AuthJWT = Depends(),
+    db: Session = Depends(get_db),
+) -> TemplateSourceResponse:
+    """A source from a template's fields, with a new bot account to post as."""
+    _get_admin_user(Authorize, db)
+    source, bot = templates.create_from_template(template_id, payload.values, db)
+    db.refresh(source)
+    return TemplateSourceResponse.model_validate(
+        {"source": _serialize_source(source), "bot_username": bot.username}
+    )
+
+
+@generator_router.get("/wanted-topics")
+def list_wanted_topics(
+    Authorize: AuthJWT = Depends(),
+    db: Session = Depends(get_db),
+) -> WantedTopicsResponse:
+    """Topics readers follow, with how many recent posts each has (app/generators/demand.py)."""
+    _get_admin_user(Authorize, db)
+    return WantedTopicsResponse(
+        topics=[
+            WantedTopicOut(topic=w.topic, readers=w.readers, posts=w.posts, thin=w.thin)
+            for w in wanted_topics(db)
+        ]
+    )
 
 
 # ── Profiles ─────────────────────────────────────────────────────────
